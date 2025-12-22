@@ -17,11 +17,16 @@ def lambda_handler(event, context):
     # Your Lambda function logic here
     response = {
         'statusCode': 200,
+        'headers': {
+            'Content-Type': 'application/json',
+            'X-Function-Version': '2.2.0'
+        },
         'body': json.dumps({
             'message': 'Hello from Lambda!',
             'function': 'lambda-function-2',
-            'version': '2.1.0',
+            'version': '2.2.0',
             'timestamp': datetime.utcnow().isoformat(),
+            'deployment': 'automated',
             'event': event
         })
     }

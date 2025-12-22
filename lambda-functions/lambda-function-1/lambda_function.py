@@ -32,12 +32,13 @@ def lambda_handler(event, context):
     response_data = {
         'message': 'Hello from Lambda!',
         'function': 'lambda-function-1',
-        'version': '1.3.0',
+        'version': '1.4.0',
         'timestamp': timestamp,
         'event_type': event_type,
         'environment': env_vars,
         'request_id': context.aws_request_id,
         'remaining_time_ms': context.get_remaining_time_in_millis(),
+        'deployment': 'automated',
         'event': event
     }
     
