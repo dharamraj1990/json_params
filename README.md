@@ -7,8 +7,10 @@ This repository contains a GitHub Actions workflow that automatically builds Doc
 - ✅ **Automatic Change Detection**: Detects which Lambda function folders have changed
 - ✅ **Parallel Builds**: Builds multiple Lambda functions in parallel when multiple folders are changed
 - ✅ **ECR Integration**: Pushes images to respective ECR repositories for each Lambda function
-- ✅ **Smart Tagging**: Tags images with commit SHA and `latest` tag
+- ✅ **Smart Tagging**: Tags images with commit SHA and Lambda function name
 - ✅ **Fail-Safe**: Continues building other images even if one fails
+- ✅ **Multi-Environment Deployment**: Auto-deploy to dev, manual approval for staging and production
+- ✅ **Error Handling**: Automatic retry logic and conflict resolution for Lambda updates
 
 ## Repository Structure
 
@@ -100,7 +102,54 @@ These should be applied to resources: `arn:aws:ecr:*:*:repository/lambda-functio
 
 Then update the workflow file to use access keys instead of IAM role.
 
-### 4. Configure Workflow Settings
+### 4. Set Up GitHub Environments for Approvals
+
+**IMPORTANT**: To enable manual approvals for staging and production, you must create GitHub Environments in your repository settings.
+
+#### Steps to Create GitHub Environments:
+
+1. **Go to Repository Settings**:
+   - Navigate to your repository on GitHub
+   - Click **Settings** → **Environments**
+
+2. **Create `staging` Environment**:
+   - Click **New environment**
+   - Name it: `staging`
+   - Under **Protection rules**, click **Add rule** → **Required reviewers**
+   - Add at least one reviewer (yourself or team members)
+   - Optionally, restrict to specific branches (e.g., `main` only)
+   - Click **Save protection rules**
+
+3. **Create `production` Environment**:
+   - Click **New environment**
+   - Name it: `production`
+   - Under **Protection rules**, click **Add rule** → **Required reviewers**
+   - Add at least one reviewer (yourself or team members)
+   - Optionally, restrict to specific branches (e.g., `main` only)
+   - Consider adding a **Wait timer** for additional safety (e.g., 5 minutes)
+   - Click **Save protection rules**
+
+4. **Create `dev` Environment (Optional)**:
+   - Click **New environment**
+   - Name it: `dev`
+   - **No protection rules needed** (automatic deployment)
+   - Click **Save protection rules**
+
+#### How It Works:
+
+- **Dev Environment**: Deploys automatically (no approval needed)
+- **Staging Environment**: Workflow pauses and waits for manual approval from a required reviewer
+- **Production Environment**: Workflow pauses and waits for manual approval from a required reviewer
+
+When a deployment job reaches staging or production:
+1. The workflow will pause and show a "Review deployments" button
+2. Required reviewers will receive a notification
+3. Reviewers can approve or reject the deployment
+4. Once approved, the deployment continues automatically
+
+**Note**: If you don't create these environments, the workflow will still run but **without approval requirements**.
+
+### 5. Configure Workflow Settings
 
 Edit `.github/workflows/lambda-build-push.yml`:
 
@@ -108,7 +157,7 @@ Edit `.github/workflows/lambda-build-push.yml`:
 - Update branch names if different from `main` or `develop`
 - Adjust paths if your Lambda functions are in a different directory
 
-### 5. Create Lambda Function Folders
+### 6. Create Lambda Function Folders
 
 For each Lambda function, create a folder under `lambda-functions/` with:
 
@@ -131,7 +180,11 @@ CMD [ "lambda_function.lambda_handler" ]
 1. **Change Detection**: When code is pushed, the workflow detects which folders under `lambda-functions/` have changed
 2. **Parallel Execution**: For each changed folder, a separate build job runs in parallel
 3. **Image Building**: Each job builds a Docker image for its Lambda function
-4. **ECR Push**: Images are tagged with the commit SHA and `latest`, then pushed to the respective ECR repository
+4. **ECR Push**: Images are tagged with `<lambda-name>-<commit-sha>`, then pushed to the ECR repository
+5. **Deployment**:
+   - **Dev**: Automatically deploys to Lambda functions (no approval)
+   - **Staging**: Waits for manual approval, then deploys
+   - **Production**: Waits for manual approval, then deploys
 
 ## Workflow Triggers
 
@@ -156,12 +209,25 @@ The workflow runs on:
 ## Image Tags
 
 Each image is tagged with:
-- **Commit SHA**: `abc123def456...` (for traceability)
-- **Latest**: `latest` (for convenience)
+- **Lambda Name + Commit SHA**: `<lambda-function-name>-<commit-sha>` (for traceability)
 
 Example:
-- `123456789.dkr.ecr.us-east-1.amazonaws.com/lambda-function-1-repo:abc123def456`
-- `123456789.dkr.ecr.us-east-1.amazonaws.com/lambda-function-1-repo:latest`
+- `123456789.dkr.ecr.us-east-1.amazonaws.com/lambda-function-1-repo:lambda-function-1-abc123def456`
+- `123456789.dkr.ecr.us-east-1.amazonaws.com/lambda-function-1-repo:lambda-function-2-abc123def456`
+
+## Deployment Flow
+
+### Automatic Deployment (Dev)
+- Triggers on push to `main` or `develop` branches
+- No approval required
+- Updates existing Lambda functions: `lambda-function-1`, `lambda-function-2`, etc.
+
+### Manual Approval (Staging & Production)
+- Triggers on push to `main` branch only
+- Requires manual approval from configured reviewers
+- Workflow pauses at the deployment step
+- Reviewers receive notifications and can approve/reject
+- Once approved, deployment proceeds automatically
 
 ## Troubleshooting
 
