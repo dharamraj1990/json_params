@@ -55,7 +55,7 @@ aws ecr create-repository \
 The workflow uses a **single ECR repository** and tags images by Lambda function name:
 
 - **ECR Repository**: `lambda-function-1-repo` (single repository for all functions)
-- **Image Tags**: `<lambda-function-name>-<commit-sha>`, `<lambda-function-name>-<short-sha>`, `<lambda-function-name>-latest`
+- **Image Tag**: `<lambda-function-name>-<commit-sha>`
 
 **Examples:**
 - `lambda-function-1` → `lambda-function-1-repo:lambda-function-1-abc123def456`
