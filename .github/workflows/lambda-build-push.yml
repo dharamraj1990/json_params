@@ -112,15 +112,21 @@ jobs:
             echo "Changed folders: $EXISTING_FOLDERS"
             echo "folders=$EXISTING_FOLDERS" >> $GITHUB_OUTPUT
             
-            # Convert to JSON array properly - use delimiter syntax for multiline output
-            JSON_FOLDERS=$(printf '%s\n' "${FOLDER_ARRAY[@]}" | jq -R . | jq -s .)
+            # Convert to JSON array properly - ensure compact JSON without extra whitespace
+            # Use jq -c to get compact JSON, then remove all newlines
+            JSON_FOLDERS=$(printf '%s\n' "${FOLDER_ARRAY[@]}" | jq -R . | jq -s . | jq -c . | tr -d '\n' | tr -d ' ')
+            # Validate JSON is valid
+            if ! echo "$JSON_FOLDERS" | jq . > /dev/null 2>&1; then
+              echo "ERROR: Generated invalid JSON: $JSON_FOLDERS"
+              exit 1
+            fi
             # Use delimiter syntax to properly handle JSON output
             {
-              echo "folders-json<<EOF"
+              echo "folders-json<<JSONEOF"
               echo "$JSON_FOLDERS"
-              echo "EOF"
+              echo "JSONEOF"
             } >> $GITHUB_OUTPUT
-            echo "JSON output: $JSON_FOLDERS"
+            echo "JSON output (compact): $JSON_FOLDERS"
           fi
 
       - name: Output changed folders
