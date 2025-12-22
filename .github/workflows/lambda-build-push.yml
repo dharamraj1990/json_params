@@ -1,4 +1,4 @@
-name: Build and Push Lambda Images to ECR
+name: Build, Push and Deploy Lambda Functions
 
 on:
   push:
@@ -17,6 +17,9 @@ on:
 env:
   AWS_REGION: us-east-1  # Change to your AWS region
   ECR_REPOSITORY: lambda-function-1-repo  # Single ECR repository for all Lambda functions
+  DEV_LAMBDA_ROLE: arn:aws:iam::ACCOUNT_ID:role/lambda-execution-role-dev  # Update with your dev Lambda execution role
+  STAGING_LAMBDA_ROLE: arn:aws:iam::ACCOUNT_ID:role/lambda-execution-role-staging  # Update with your staging Lambda execution role
+  PROD_LAMBDA_ROLE: arn:aws:iam::ACCOUNT_ID:role/lambda-execution-role-prod  # Update with your prod Lambda execution role
 
 jobs:
   detect-changes:
@@ -151,6 +154,8 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.folders != '' && needs.detect-changes.outputs.folders-json != '' && needs.detect-changes.outputs.folders-json != '[]'
     runs-on: ubuntu-latest
+    outputs:
+      folders-json: ${{ needs.detect-changes.outputs.folders-json }}
     strategy:
       matrix:
         folder: ${{ fromJson(needs.detect-changes.outputs.folders-json) }}
@@ -235,4 +240,208 @@ jobs:
           echo "✅ Successfully built and pushed image for: ${{ matrix.folder }}"
           echo "📦 ECR Repository: ${{ steps.ecr-config.outputs.ecr-uri }}"
           echo "🏷️  Tag: ${{ steps.image-tag.outputs.tag }}"
+          echo "Image URI: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
+
+  deploy-dev:
+    needs: build-and-push
+    if: success()
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        folder: ${{ fromJson(needs.build-and-push.outputs.folders-json) }}
+      fail-fast: false
+    environment:
+      name: dev
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get image URI
+        id: image-uri
+        run: |
+          IMAGE_TAG="${{ matrix.folder }}-${{ github.sha }}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "Image URI: ${IMAGE_URI}"
+
+      - name: Deploy Lambda to Dev
+        run: |
+          LAMBDA_NAME="${{ matrix.folder }}-dev"
+          IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
+          
+          echo "Deploying $LAMBDA_NAME to dev environment..."
+          
+          # Check if Lambda function exists
+          if aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} &>/dev/null; then
+            echo "Updating existing Lambda function: $LAMBDA_NAME"
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --image-uri "$IMAGE_URI" \
+              --region ${{ env.AWS_REGION }}
+            
+            # Wait for update to complete
+            aws lambda wait function-updated \
+              --function-name "$LAMBDA_NAME" \
+              --region ${{ env.AWS_REGION }}
+          else
+            echo "Creating new Lambda function: $LAMBDA_NAME"
+            aws lambda create-function \
+              --function-name "$LAMBDA_NAME" \
+              --package-type Image \
+              --code ImageUri="$IMAGE_URI" \
+              --role "${{ env.DEV_LAMBDA_ROLE }}" \
+              --timeout 30 \
+              --memory-size 256 \
+              --region ${{ env.AWS_REGION }}
+          fi
+          
+          echo "✅ Successfully deployed $LAMBDA_NAME to dev"
+
+  deploy-staging:
+    needs: build-and-push
+    if: success()
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        folder: ${{ fromJson(needs.build-and-push.outputs.folders-json) }}
+      fail-fast: false
+    environment:
+      name: staging
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get image URI
+        id: image-uri
+        run: |
+          IMAGE_TAG="${{ matrix.folder }}-${{ github.sha }}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "Image URI: ${IMAGE_URI}"
+
+      - name: Deploy Lambda to Staging
+        run: |
+          LAMBDA_NAME="${{ matrix.folder }}-staging"
+          IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
+          
+          echo "Deploying $LAMBDA_NAME to staging environment..."
+          
+          if aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} &>/dev/null; then
+            echo "Updating existing Lambda function: $LAMBDA_NAME"
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --image-uri "$IMAGE_URI" \
+              --region ${{ env.AWS_REGION }}
+            
+            aws lambda wait function-updated \
+              --function-name "$LAMBDA_NAME" \
+              --region ${{ env.AWS_REGION }}
+          else
+            echo "Creating new Lambda function: $LAMBDA_NAME"
+            aws lambda create-function \
+              --function-name "$LAMBDA_NAME" \
+              --package-type Image \
+              --code ImageUri="$IMAGE_URI" \
+              --role "${{ env.STAGING_LAMBDA_ROLE }}" \
+              --timeout 30 \
+              --memory-size 256 \
+              --region ${{ env.AWS_REGION }}
+          fi
+          
+          echo "✅ Successfully deployed $LAMBDA_NAME to staging"
+
+  deploy-prod:
+    needs: build-and-push
+    if: success()
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        folder: ${{ fromJson(needs.build-and-push.outputs.folders-json) }}
+      fail-fast: false
+    environment:
+      name: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get image URI
+        id: image-uri
+        run: |
+          IMAGE_TAG="${{ matrix.folder }}-${{ github.sha }}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "Image URI: ${IMAGE_URI}"
+
+      - name: Deploy Lambda to Production
+        run: |
+          LAMBDA_NAME="${{ matrix.folder }}-prod"
+          IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
+          
+          echo "Deploying $LAMBDA_NAME to production environment..."
+          
+          if aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} &>/dev/null; then
+            echo "Updating existing Lambda function: $LAMBDA_NAME"
+            aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --image-uri "$IMAGE_URI" \
+              --region ${{ env.AWS_REGION }}
+            
+            aws lambda wait function-updated \
+              --function-name "$LAMBDA_NAME" \
+              --region ${{ env.AWS_REGION }}
+          else
+            echo "Creating new Lambda function: $LAMBDA_NAME"
+            aws lambda create-function \
+              --function-name "$LAMBDA_NAME" \
+              --package-type Image \
+              --code ImageUri="$IMAGE_URI" \
+              --role "${{ env.PROD_LAMBDA_ROLE }}" \
+              --timeout 30 \
+              --memory-size 256 \
+              --region ${{ env.AWS_REGION }}
+          fi
+          
+          echo "✅ Successfully deployed $LAMBDA_NAME to production"
 
