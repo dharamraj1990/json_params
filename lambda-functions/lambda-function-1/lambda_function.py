@@ -1,8 +1,10 @@
 import json
+import os
+from datetime import datetime
 
 def lambda_handler(event, context):
     """
-    Sample Lambda function handler
+    Enhanced Lambda function handler with additional features
     
     Args:
         event: Lambda event data
@@ -11,16 +13,41 @@ def lambda_handler(event, context):
     Returns:
         dict: Response with status code and body
     """
+    # Log the incoming event
     print(f"Received event: {json.dumps(event)}")
+    print(f"Function name: {context.function_name}")
+    print(f"Request ID: {context.aws_request_id}")
     
-    # Your Lambda function logic here
+    # Get environment variables if any
+    env_vars = {
+        'region': os.environ.get('AWS_REGION', 'us-east-1'),
+        'function_version': context.function_version
+    }
+    
+    # Process the event
+    event_type = event.get('type', 'unknown')
+    timestamp = datetime.utcnow().isoformat()
+    
+    # Enhanced response with more details
+    response_data = {
+        'message': 'Hello from Lambda!',
+        'function': 'lambda-function-1',
+        'version': '1.1.0',
+        'timestamp': timestamp,
+        'event_type': event_type,
+        'environment': env_vars,
+        'request_id': context.aws_request_id,
+        'remaining_time_ms': context.get_remaining_time_in_millis(),
+        'event': event
+    }
+    
     response = {
         'statusCode': 200,
-        'body': json.dumps({
-            'message': 'Hello from Lambda!',
-            'function': 'lambda-function-1',
-            'event': event
-        })
+        'headers': {
+            'Content-Type': 'application/json',
+            'X-Function-Name': context.function_name
+        },
+        'body': json.dumps(response_data, indent=2)
     }
     
     return response
