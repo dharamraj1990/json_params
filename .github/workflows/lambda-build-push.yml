@@ -17,9 +17,6 @@ on:
 env:
   AWS_REGION: us-east-1  # Change to your AWS region
   ECR_REPOSITORY: lambda-function-1-repo  # Single ECR repository for all Lambda functions
-  DEV_LAMBDA_ROLE: arn:aws:iam::ACCOUNT_ID:role/lambda-execution-role-dev  # Update with your dev Lambda execution role
-  STAGING_LAMBDA_ROLE: arn:aws:iam::ACCOUNT_ID:role/lambda-execution-role-staging  # Update with your staging Lambda execution role
-  PROD_LAMBDA_ROLE: arn:aws:iam::ACCOUNT_ID:role/lambda-execution-role-prod  # Update with your prod Lambda execution role
 
 jobs:
   detect-changes:
@@ -283,29 +280,17 @@ jobs:
           
           echo "Deploying $LAMBDA_NAME to dev environment..."
           
-          # Check if Lambda function exists
-          if aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} &>/dev/null; then
-            echo "Updating existing Lambda function: $LAMBDA_NAME"
-            aws lambda update-function-code \
-              --function-name "$LAMBDA_NAME" \
-              --image-uri "$IMAGE_URI" \
-              --region ${{ env.AWS_REGION }}
-            
-            # Wait for update to complete
-            aws lambda wait function-updated \
-              --function-name "$LAMBDA_NAME" \
-              --region ${{ env.AWS_REGION }}
-          else
-            echo "Creating new Lambda function: $LAMBDA_NAME"
-            aws lambda create-function \
-              --function-name "$LAMBDA_NAME" \
-              --package-type Image \
-              --code ImageUri="$IMAGE_URI" \
-              --role "${{ env.DEV_LAMBDA_ROLE }}" \
-              --timeout 30 \
-              --memory-size 256 \
-              --region ${{ env.AWS_REGION }}
-          fi
+          # Update existing Lambda function (functions already exist)
+          echo "Updating Lambda function: $LAMBDA_NAME"
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --image-uri "$IMAGE_URI" \
+            --region ${{ env.AWS_REGION }}
+          
+          # Wait for update to complete
+          aws lambda wait function-updated \
+            --function-name "$LAMBDA_NAME" \
+            --region ${{ env.AWS_REGION }}
           
           echo "✅ Successfully deployed $LAMBDA_NAME to dev"
 
@@ -352,27 +337,17 @@ jobs:
           
           echo "Deploying $LAMBDA_NAME to staging environment..."
           
-          if aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} &>/dev/null; then
-            echo "Updating existing Lambda function: $LAMBDA_NAME"
-            aws lambda update-function-code \
-              --function-name "$LAMBDA_NAME" \
-              --image-uri "$IMAGE_URI" \
-              --region ${{ env.AWS_REGION }}
-            
-            aws lambda wait function-updated \
-              --function-name "$LAMBDA_NAME" \
-              --region ${{ env.AWS_REGION }}
-          else
-            echo "Creating new Lambda function: $LAMBDA_NAME"
-            aws lambda create-function \
-              --function-name "$LAMBDA_NAME" \
-              --package-type Image \
-              --code ImageUri="$IMAGE_URI" \
-              --role "${{ env.STAGING_LAMBDA_ROLE }}" \
-              --timeout 30 \
-              --memory-size 256 \
-              --region ${{ env.AWS_REGION }}
-          fi
+          # Update existing Lambda function (functions already exist)
+          echo "Updating Lambda function: $LAMBDA_NAME"
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --image-uri "$IMAGE_URI" \
+            --region ${{ env.AWS_REGION }}
+          
+          # Wait for update to complete
+          aws lambda wait function-updated \
+            --function-name "$LAMBDA_NAME" \
+            --region ${{ env.AWS_REGION }}
           
           echo "✅ Successfully deployed $LAMBDA_NAME to staging"
 
@@ -419,27 +394,17 @@ jobs:
           
           echo "Deploying $LAMBDA_NAME to production environment..."
           
-          if aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} &>/dev/null; then
-            echo "Updating existing Lambda function: $LAMBDA_NAME"
-            aws lambda update-function-code \
-              --function-name "$LAMBDA_NAME" \
-              --image-uri "$IMAGE_URI" \
-              --region ${{ env.AWS_REGION }}
-            
-            aws lambda wait function-updated \
-              --function-name "$LAMBDA_NAME" \
-              --region ${{ env.AWS_REGION }}
-          else
-            echo "Creating new Lambda function: $LAMBDA_NAME"
-            aws lambda create-function \
-              --function-name "$LAMBDA_NAME" \
-              --package-type Image \
-              --code ImageUri="$IMAGE_URI" \
-              --role "${{ env.PROD_LAMBDA_ROLE }}" \
-              --timeout 30 \
-              --memory-size 256 \
-              --region ${{ env.AWS_REGION }}
-          fi
+          # Update existing Lambda function (functions already exist)
+          echo "Updating Lambda function: $LAMBDA_NAME"
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --image-uri "$IMAGE_URI" \
+            --region ${{ env.AWS_REGION }}
+          
+          # Wait for update to complete
+          aws lambda wait function-updated \
+            --function-name "$LAMBDA_NAME" \
+            --region ${{ env.AWS_REGION }}
           
           echo "✅ Successfully deployed $LAMBDA_NAME to production"
 
