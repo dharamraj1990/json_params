@@ -15,9 +15,8 @@ This repository contains a GitHub Actions workflow that automatically builds Doc
 ```
 your-repo/
 ├── .github/
-│   ├── workflows/
-│   │   └── lambda-build-push.yml    # Main workflow file
-│   └── lambda-ecr-mapping.txt        # Folder to ECR repository mapping
+│   └── workflows/
+│       └── lambda-build-push.yml    # Main workflow file
 ├── lambda-functions/
 │   ├── lambda-function-1/
 │   │   ├── Dockerfile
@@ -39,7 +38,7 @@ Create ECR repositories in AWS for each Lambda function. You can use AWS CLI:
 # Set your AWS region
 export AWS_REGION=us-east-1
 
-# Create repositories (read names from .github/lambda-ecr-mapping.txt)
+# Create repositories using naming convention: <folder-name>-repo
 aws ecr create-repository --repository-name lambda-function-1-repo --region $AWS_REGION
 aws ecr create-repository --repository-name lambda-function-2-repo --region $AWS_REGION
 aws ecr create-repository --repository-name lambda-function-3-repo --region $AWS_REGION

@@ -177,23 +177,17 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Read ECR repository mapping
+      - name: Determine ECR repository name
         id: ecr-config
         run: |
-          # Read the ECR mapping from config file
-          ECR_REPO=$(grep "^${{ matrix.folder }}:" .github/lambda-ecr-mapping.txt | cut -d':' -f2 | xargs)
-          
-          if [ -z "$ECR_REPO" ]; then
-            echo "ERROR: No ECR repository mapping found for folder: ${{ matrix.folder }}"
-            exit 1
-          fi
+          # Use naming convention: folder-name -> folder-name-repo
+          # Example: lambda-function-1 -> lambda-function-1-repo
+          ECR_REPO="${{ matrix.folder }}-repo"
           
           echo "ECR Repository: $ECR_REPO"
           echo "ecr-repo=$ECR_REPO" >> $GITHUB_OUTPUT
           
-          # Extract account ID and region from ECR repo if needed
-          # Format: <account-id>.dkr.ecr.<region>.amazonaws.com/<repo-name>
-          # Or just: <repo-name> (we'll construct full URI)
+          # Construct full ECR URI
           FULL_ECR_URI="${{ steps.login-ecr.outputs.registry }}/$ECR_REPO"
           echo "ecr-uri=$FULL_ECR_URI" >> $GITHUB_OUTPUT
 
