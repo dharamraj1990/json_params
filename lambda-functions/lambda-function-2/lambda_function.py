@@ -19,17 +19,18 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'headers': {
             'Content-Type': 'application/json',
-            'X-Function-Version': '2.5.0'
+            'X-Function-Version': '2.6.0'
         },
         'body': json.dumps({
             'message': 'Hello from Lambda!',
             'function': 'lambda-function-2',
-            'version': '2.5.0',
+            'version': '2.6.0',
             'timestamp': datetime.utcnow().isoformat(),
             'deployment': 'automated',
             'build_date': datetime.utcnow().isoformat(),
             'environment': 'dev',
             'last_updated': datetime.utcnow().isoformat(),
+            'approval_required': True,
             'event': event
         })
     }
