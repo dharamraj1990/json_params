@@ -154,8 +154,6 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.folders != '' && needs.detect-changes.outputs.folders-json != '' && needs.detect-changes.outputs.folders-json != '[]'
     runs-on: ubuntu-latest
-    outputs:
-      folders-json: ${{ needs.detect-changes.outputs.folders-json }}
     strategy:
       matrix:
         folder: ${{ fromJson(needs.detect-changes.outputs.folders-json) }}
@@ -243,12 +241,12 @@ jobs:
           echo "Image URI: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
 
   deploy-dev:
-    needs: build-and-push
-    if: success()
+    needs: [detect-changes, build-and-push]
+    if: success() && needs.detect-changes.outputs.folders != ''
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        folder: ${{ fromJson(needs.build-and-push.outputs.folders-json) }}
+        folder: ${{ fromJson(needs.detect-changes.outputs.folders-json) }}
       fail-fast: false
     environment:
       name: dev
@@ -312,12 +310,12 @@ jobs:
           echo "✅ Successfully deployed $LAMBDA_NAME to dev"
 
   deploy-staging:
-    needs: build-and-push
-    if: success()
+    needs: [detect-changes, build-and-push]
+    if: success() && needs.detect-changes.outputs.folders != ''
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        folder: ${{ fromJson(needs.build-and-push.outputs.folders-json) }}
+        folder: ${{ fromJson(needs.detect-changes.outputs.folders-json) }}
       fail-fast: false
     environment:
       name: staging
@@ -379,12 +377,12 @@ jobs:
           echo "✅ Successfully deployed $LAMBDA_NAME to staging"
 
   deploy-prod:
-    needs: build-and-push
-    if: success()
+    needs: [detect-changes, build-and-push]
+    if: success() && needs.detect-changes.outputs.folders != ''
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        folder: ${{ fromJson(needs.build-and-push.outputs.folders-json) }}
+        folder: ${{ fromJson(needs.detect-changes.outputs.folders-json) }}
       fail-fast: false
     environment:
       name: production
