@@ -347,6 +347,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Manual Approval for Staging Deployment
+        uses: tricycle/approval-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          approval-message: '⚠️ **Staging Deployment Approval Required** ⚠️
+
+          The following Lambda functions will be deployed to **staging**:
+          - ${{ matrix.folder }}
+
+          **Commit**: ${{ github.sha }}
+          **Author**: ${{ github.actor }}
+          **Message**: ${{ github.event.head_commit.message }}
+
+          Please review and approve to proceed with staging deployment.'
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
