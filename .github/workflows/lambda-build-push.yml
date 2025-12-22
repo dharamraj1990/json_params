@@ -239,7 +239,8 @@ jobs:
 
   deploy-dev:
     needs: [detect-changes, build-and-push]
-    if: success() && needs.detect-changes.outputs.folders != ''
+    # Deploy to dev on develop branch or main branch
+    if: success() && needs.detect-changes.outputs.folders != '' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -296,7 +297,8 @@ jobs:
 
   deploy-staging:
     needs: [detect-changes, build-and-push]
-    if: success() && needs.detect-changes.outputs.folders != ''
+    # Deploy to staging only on main branch
+    if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -353,7 +355,8 @@ jobs:
 
   deploy-prod:
     needs: [detect-changes, build-and-push]
-    if: success() && needs.detect-changes.outputs.folders != ''
+    # Deploy to production only on main branch
+    if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     strategy:
       matrix:
