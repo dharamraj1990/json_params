@@ -276,7 +276,7 @@ jobs:
 
       - name: Deploy Lambda to Dev
         run: |
-          LAMBDA_NAME="${{ matrix.folder }}-dev"
+          LAMBDA_NAME="${{ matrix.folder }}"
           IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
           
           echo "Deploying $LAMBDA_NAME to dev environment..."
@@ -334,7 +334,7 @@ jobs:
 
       - name: Deploy Lambda to Staging
         run: |
-          LAMBDA_NAME="${{ matrix.folder }}-staging"
+          LAMBDA_NAME="${{ matrix.folder }}"
           IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
           
           echo "Deploying $LAMBDA_NAME to staging environment..."
@@ -392,7 +392,7 @@ jobs:
 
       - name: Deploy Lambda to Production
         run: |
-          LAMBDA_NAME="${{ matrix.folder }}-prod"
+          LAMBDA_NAME="${{ matrix.folder }}"
           IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
           
           echo "Deploying $LAMBDA_NAME to production environment..."
