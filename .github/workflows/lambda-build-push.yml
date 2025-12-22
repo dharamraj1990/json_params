@@ -164,13 +164,14 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}  # IAM Role ARN
+          # Try IAM Role first (recommended), fallback to access keys
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-        # Alternative: Use access keys (less secure)
-        # with:
-        #   aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        #   aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        #   aws-region: ${{ env.AWS_REGION }}
+        # Note: If using IAM Role, leave access keys empty
+        # If using access keys, leave role-to-assume empty
+        # See README.md for setup instructions
 
       - name: Login to Amazon ECR
         id: login-ecr
