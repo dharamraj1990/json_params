@@ -21,7 +21,7 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      changed-folders: ${{ steps.changes.outputs.folders }}
+      folders: ${{ steps.changes.outputs.folders }}
       folders-json: ${{ steps.changes.outputs.folders-json }}
     steps:
       - name: Checkout code
@@ -130,18 +130,25 @@ jobs:
       - name: Output changed folders
         run: |
           echo "=== Change Detection Results ==="
-          echo "Folders output: '${{ steps.changes.outputs.folders }}'"
-          echo "Folders JSON output: '${{ steps.changes.outputs.folders-json }}'"
-          echo "Folders output length: ${#{{ steps.changes.outputs.folders }}}"
+          echo "Step outputs:"
+          echo "  folders: '${{ steps.changes.outputs.folders }}'"
+          echo "  folders-json: '${{ steps.changes.outputs.folders-json }}'"
+          echo ""
+          echo "Job outputs (for next job):"
+          echo "  folders: '${{ needs.detect-changes.outputs.folders }}'"
+          echo "  folders-json: '${{ needs.detect-changes.outputs.folders-json }}'"
+          echo ""
           if [ -z "${{ steps.changes.outputs.folders }}" ]; then
             echo "⚠️  WARNING: Folders output is empty - build job will be skipped"
           else
-            echo "✅ Folders detected - build job will run"
+            echo "✅ Folders detected: ${{ steps.changes.outputs.folders }}"
+            echo "✅ JSON: ${{ steps.changes.outputs.folders-json }}"
+            echo "✅ Build job should run"
           fi
 
   build-and-push:
     needs: detect-changes
-    if: needs.detect-changes.outputs.folders != '' && needs.detect-changes.outputs.folders-json != '[]'
+    if: needs.detect-changes.outputs.folders != '' && needs.detect-changes.outputs.folders-json != '' && needs.detect-changes.outputs.folders-json != '[]'
     runs-on: ubuntu-latest
     strategy:
       matrix:
