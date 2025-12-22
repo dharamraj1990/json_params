@@ -24,6 +24,8 @@ def lambda_handler(event, context):
         processor = DataProcessor()
         result = processor.process(event)
         
+        logger.info(f"Processing completed: {result}")
+        
         response = {
             'statusCode': 200,
             'body': json.dumps({
@@ -31,12 +33,9 @@ def lambda_handler(event, context):
                 'function': 'lambda-function-3',
                 'version': '1.1.0',
                 'result': result,
-                'request_id': context.aws_request_id,
-                'processed_at': logger.info('Processing completed')
+                'request_id': context.aws_request_id
             })
         }
-        
-        logger.info(f"Processing completed: {result}")
         return response
         
     except Exception as e:
