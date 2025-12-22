@@ -33,45 +33,32 @@ your-repo/
 
 ### 1. Create ECR Repositories
 
-You have multiple options to create ECR repositories:
-
-#### Option A: Using the Automated Script (Recommended)
+Create ECR repositories in AWS for each Lambda function. You can use AWS CLI:
 
 ```bash
-# Set AWS region (optional, defaults to us-east-1)
+# Set your AWS region
 export AWS_REGION=us-east-1
 
-# Run the script (reads from .github/lambda-ecr-mapping.txt)
-./scripts/create-ecr-repositories.sh
-```
-
-The script will:
-- Read repository names from `.github/lambda-ecr-mapping.txt`
-- Create all ECR repositories automatically
-- Skip repositories that already exist
-- Display repository URIs after creation
-
-#### Option B: Using Python Script
-
-```bash
-pip install boto3
-python3 scripts/create-ecr-repositories.py
-```
-
-#### Option C: Manual AWS CLI
-
-```bash
-# Create repositories one by one
-aws ecr create-repository --repository-name lambda-function-1-repo --region us-east-1
-aws ecr create-repository --repository-name lambda-function-2-repo --region us-east-1
+# Create repositories (read names from .github/lambda-ecr-mapping.txt)
+aws ecr create-repository --repository-name lambda-function-1-repo --region $AWS_REGION
+aws ecr create-repository --repository-name lambda-function-2-repo --region $AWS_REGION
+aws ecr create-repository --repository-name lambda-function-3-repo --region $AWS_REGION
 # ... repeat for all 10 functions
 ```
 
-#### Option D: Using Terraform or CloudFormation
+Or create them all at once using a loop:
 
-Terraform and CloudFormation templates are available in the `scripts/` directory.
+```bash
+export AWS_REGION=us-east-1
+for i in {1..10}; do
+  aws ecr create-repository \
+    --repository-name lambda-function-$i-repo \
+    --region $AWS_REGION \
+    --image-scanning-configuration scanOnPush=true
+done
+```
 
-**Note:** Make sure AWS credentials are configured (`aws configure`) before running any script.
+**Note:** Make sure AWS credentials are configured (`aws configure`) before running commands.
 
 ### 2. Configure ECR Mapping
 
