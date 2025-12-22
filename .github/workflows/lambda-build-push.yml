@@ -16,7 +16,7 @@ on:
 
 env:
   AWS_REGION: us-east-1  # Change to your AWS region
-  ECR_REPOSITORY: lambda-functions-repo  # Single ECR repository for all Lambda functions
+  ECR_REPOSITORY: lambda-function-1-repo  # Single ECR repository for all Lambda functions
 
 jobs:
   detect-changes:

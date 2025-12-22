@@ -40,7 +40,7 @@ export AWS_REGION=us-east-1
 
 # Create single ECR repository
 aws ecr create-repository \
-  --repository-name lambda-functions-repo \
+  --repository-name lambda-function-1-repo \
   --region $AWS_REGION \
   --image-scanning-configuration scanOnPush=true
 ```
@@ -54,13 +54,13 @@ aws ecr create-repository \
 
 The workflow uses a **single ECR repository** and tags images by Lambda function name:
 
-- **ECR Repository**: `lambda-functions-repo` (single repository for all functions)
+- **ECR Repository**: `lambda-function-1-repo` (single repository for all functions)
 - **Image Tags**: `<lambda-function-name>-<commit-sha>`, `<lambda-function-name>-<short-sha>`, `<lambda-function-name>-latest`
 
 **Examples:**
-- `lambda-function-1` → `lambda-functions-repo:lambda-function-1-abc123def456`
-- `lambda-function-2` → `lambda-functions-repo:lambda-function-2-abc123def456`
-- `lambda-function-3` → `lambda-functions-repo:lambda-function-3-abc123def456`
+- `lambda-function-1` → `lambda-function-1-repo:lambda-function-1-abc123def456`
+- `lambda-function-2` → `lambda-function-1-repo:lambda-function-2-abc123def456`
+- `lambda-function-3` → `lambda-function-1-repo:lambda-function-3-abc123def456`
 
 This allows you to:
 - Store all Lambda images in one repository
