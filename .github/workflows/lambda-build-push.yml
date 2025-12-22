@@ -281,14 +281,48 @@ jobs:
           
           echo "Deploying $LAMBDA_NAME to dev environment..."
           
+          # Wait for any in-progress updates to complete
+          echo "Checking for in-progress updates..."
+          MAX_WAIT=300  # 5 minutes max wait
+          WAIT_TIME=0
+          while [ $WAIT_TIME -lt $MAX_WAIT ]; do
+            STATE=$(aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} --query 'Configuration.State' --output text 2>/dev/null || echo "Active")
+            if [ "$STATE" == "Active" ] || [ "$STATE" == "Inactive" ]; then
+              echo "Function is ready for update (State: $STATE)"
+              break
+            else
+              echo "Function state: $STATE, waiting 10 seconds..."
+              sleep 10
+              WAIT_TIME=$((WAIT_TIME + 10))
+            fi
+          done
+          
           # Update existing Lambda function (functions already exist)
           echo "Updating Lambda function: $LAMBDA_NAME"
-          aws lambda update-function-code \
-            --function-name "$LAMBDA_NAME" \
-            --image-uri "$IMAGE_URI" \
-            --region ${{ env.AWS_REGION }}
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --image-uri "$IMAGE_URI" \
+              --region ${{ env.AWS_REGION }} 2>&1; then
+              echo "Update initiated successfully"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "Update failed, retrying in 15 seconds... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 15
+              else
+                echo "❌ Failed to update after $MAX_RETRIES attempts"
+                exit 1
+              fi
+            fi
+          done
           
           # Wait for update to complete
+          echo "Waiting for update to complete..."
           aws lambda wait function-updated \
             --function-name "$LAMBDA_NAME" \
             --region ${{ env.AWS_REGION }}
@@ -339,14 +373,48 @@ jobs:
           
           echo "Deploying $LAMBDA_NAME to staging environment..."
           
+          # Wait for any in-progress updates to complete
+          echo "Checking for in-progress updates..."
+          MAX_WAIT=300  # 5 minutes max wait
+          WAIT_TIME=0
+          while [ $WAIT_TIME -lt $MAX_WAIT ]; do
+            STATE=$(aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} --query 'Configuration.State' --output text 2>/dev/null || echo "Active")
+            if [ "$STATE" == "Active" ] || [ "$STATE" == "Inactive" ]; then
+              echo "Function is ready for update (State: $STATE)"
+              break
+            else
+              echo "Function state: $STATE, waiting 10 seconds..."
+              sleep 10
+              WAIT_TIME=$((WAIT_TIME + 10))
+            fi
+          done
+          
           # Update existing Lambda function (functions already exist)
           echo "Updating Lambda function: $LAMBDA_NAME"
-          aws lambda update-function-code \
-            --function-name "$LAMBDA_NAME" \
-            --image-uri "$IMAGE_URI" \
-            --region ${{ env.AWS_REGION }}
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --image-uri "$IMAGE_URI" \
+              --region ${{ env.AWS_REGION }} 2>&1; then
+              echo "Update initiated successfully"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "Update failed, retrying in 15 seconds... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 15
+              else
+                echo "❌ Failed to update after $MAX_RETRIES attempts"
+                exit 1
+              fi
+            fi
+          done
           
           # Wait for update to complete
+          echo "Waiting for update to complete..."
           aws lambda wait function-updated \
             --function-name "$LAMBDA_NAME" \
             --region ${{ env.AWS_REGION }}
@@ -397,14 +465,48 @@ jobs:
           
           echo "Deploying $LAMBDA_NAME to production environment..."
           
+          # Wait for any in-progress updates to complete
+          echo "Checking for in-progress updates..."
+          MAX_WAIT=300  # 5 minutes max wait
+          WAIT_TIME=0
+          while [ $WAIT_TIME -lt $MAX_WAIT ]; do
+            STATE=$(aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} --query 'Configuration.State' --output text 2>/dev/null || echo "Active")
+            if [ "$STATE" == "Active" ] || [ "$STATE" == "Inactive" ]; then
+              echo "Function is ready for update (State: $STATE)"
+              break
+            else
+              echo "Function state: $STATE, waiting 10 seconds..."
+              sleep 10
+              WAIT_TIME=$((WAIT_TIME + 10))
+            fi
+          done
+          
           # Update existing Lambda function (functions already exist)
           echo "Updating Lambda function: $LAMBDA_NAME"
-          aws lambda update-function-code \
-            --function-name "$LAMBDA_NAME" \
-            --image-uri "$IMAGE_URI" \
-            --region ${{ env.AWS_REGION }}
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if aws lambda update-function-code \
+              --function-name "$LAMBDA_NAME" \
+              --image-uri "$IMAGE_URI" \
+              --region ${{ env.AWS_REGION }} 2>&1; then
+              echo "Update initiated successfully"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "Update failed, retrying in 15 seconds... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 15
+              else
+                echo "❌ Failed to update after $MAX_RETRIES attempts"
+                exit 1
+              fi
+            fi
+          done
           
           # Wait for update to complete
+          echo "Waiting for update to complete..."
           aws lambda wait function-updated \
             --function-name "$LAMBDA_NAME" \
             --region ${{ env.AWS_REGION }}
