@@ -30,44 +30,42 @@ your-repo/
 
 ## Setup Instructions
 
-### 1. Create ECR Repositories
+### 1. Create ECR Repository
 
-Create ECR repositories in AWS for each Lambda function. You can use AWS CLI:
+Create a **single ECR repository** for all Lambda functions:
 
 ```bash
 # Set your AWS region
 export AWS_REGION=us-east-1
 
-# Create repositories using naming convention: <folder-name>-repo
-aws ecr create-repository --repository-name lambda-function-1-repo --region $AWS_REGION
-aws ecr create-repository --repository-name lambda-function-2-repo --region $AWS_REGION
-aws ecr create-repository --repository-name lambda-function-3-repo --region $AWS_REGION
-# ... repeat for all 10 functions
+# Create single ECR repository
+aws ecr create-repository \
+  --repository-name lambda-functions-repo \
+  --region $AWS_REGION \
+  --image-scanning-configuration scanOnPush=true
 ```
 
-Or create them all at once using a loop:
+**Note:** 
+- Only **one ECR repository** is needed for all Lambda functions
+- Images are tagged with the Lambda function name (e.g., `lambda-function-1-<commit-sha>`)
+- Make sure AWS credentials are configured (`aws configure`) before running commands
 
-```bash
-export AWS_REGION=us-east-1
-for i in {1..10}; do
-  aws ecr create-repository \
-    --repository-name lambda-function-$i-repo \
-    --region $AWS_REGION \
-    --image-scanning-configuration scanOnPush=true
-done
-```
+### 2. Image Tagging Convention
 
-**Note:** Make sure AWS credentials are configured (`aws configure`) before running commands.
+The workflow uses a **single ECR repository** and tags images by Lambda function name:
 
-### 2. ECR Repository Naming Convention
+- **ECR Repository**: `lambda-functions-repo` (single repository for all functions)
+- **Image Tags**: `<lambda-function-name>-<commit-sha>`, `<lambda-function-name>-<short-sha>`, `<lambda-function-name>-latest`
 
-The workflow uses a naming convention: `<folder-name>-repo`
+**Examples:**
+- `lambda-function-1` → `lambda-functions-repo:lambda-function-1-abc123def456`
+- `lambda-function-2` → `lambda-functions-repo:lambda-function-2-abc123def456`
+- `lambda-function-3` → `lambda-functions-repo:lambda-function-3-abc123def456`
 
-For example:
-- `lambda-function-1` folder → ECR repository: `lambda-function-1-repo`
-- `lambda-function-2` folder → ECR repository: `lambda-function-2-repo`
-
-Make sure your ECR repository names follow this pattern.
+This allows you to:
+- Store all Lambda images in one repository
+- Easily identify which Lambda function each image belongs to
+- Track versions using commit SHA in the tag
 
 ### 3. Set Up AWS Credentials in GitHub
 
