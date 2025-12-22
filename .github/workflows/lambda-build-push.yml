@@ -16,6 +16,7 @@ on:
 
 env:
   AWS_REGION: us-east-1  # Change to your AWS region
+  ECR_REPOSITORY: lambda-functions-repo  # Single ECR repository for all Lambda functions
 
 jobs:
   detect-changes:
@@ -177,15 +178,21 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Determine ECR repository name
+      - name: Set ECR repository and image tags
         id: ecr-config
         run: |
-          # Use naming convention: folder-name -> folder-name-repo
-          # Example: lambda-function-1 -> lambda-function-1-repo
-          ECR_REPO="${{ matrix.folder }}-repo"
+          # Use single ECR repository for all Lambda functions
+          ECR_REPO="${{ env.ECR_REPOSITORY }}"
+          
+          # Image will be tagged with Lambda function name
+          # Format: <ecr-repo>:<lambda-function-name>-<commit-sha>
+          # Example: lambda-functions-repo:lambda-function-1-abc123
+          LAMBDA_NAME="${{ matrix.folder }}"
           
           echo "ECR Repository: $ECR_REPO"
+          echo "Lambda Function: $LAMBDA_NAME"
           echo "ecr-repo=$ECR_REPO" >> $GITHUB_OUTPUT
+          echo "lambda-name=$LAMBDA_NAME" >> $GITHUB_OUTPUT
           
           # Construct full ECR URI
           FULL_ECR_URI="${{ steps.login-ecr.outputs.registry }}/$ECR_REPO"
@@ -194,39 +201,57 @@ jobs:
       - name: Set image tag
         id: image-tag
         run: |
-          # Use commit SHA as tag for traceability
-          IMAGE_TAG="${{ github.sha }}"
-          # Also create a 'latest' tag
+          # Tag images with Lambda function name and commit SHA
+          # Format: <lambda-function-name>-<commit-sha>
+          # Example: lambda-function-1-abc123def456
+          LAMBDA_NAME="${{ steps.ecr-config.outputs.lambda-name }}"
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
+          
+          IMAGE_TAG="${LAMBDA_NAME}-${COMMIT_SHA}"
+          IMAGE_TAG_SHORT="${LAMBDA_NAME}-${SHORT_SHA}"
+          IMAGE_TAG_LATEST="${LAMBDA_NAME}-latest"
+          
           echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
-          echo "tag-latest=latest" >> $GITHUB_OUTPUT
-          echo "Image will be tagged as: $IMAGE_TAG and latest"
+          echo "tag-short=$IMAGE_TAG_SHORT" >> $GITHUB_OUTPUT
+          echo "tag-latest=$IMAGE_TAG_LATEST" >> $GITHUB_OUTPUT
+          echo "Image tags: $IMAGE_TAG, $IMAGE_TAG_SHORT, $IMAGE_TAG_LATEST"
 
       - name: Build Docker image
         working-directory: lambda-functions/${{ matrix.folder }}
         run: |
           echo "Building Docker image for lambda function: ${{ matrix.folder }}"
           docker build -t ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }} \
+                       -t ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag-short }} \
                        -t ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag-latest }} \
                        .
           
-          echo "Image built successfully"
+          echo "Image built successfully with tags:"
+          echo "  - ${{ steps.image-tag.outputs.tag }}"
+          echo "  - ${{ steps.image-tag.outputs.tag-short }}"
+          echo "  - ${{ steps.image-tag.outputs.tag-latest }}"
 
       - name: Push Docker image to ECR
         run: |
           echo "Pushing image to ECR: ${{ steps.ecr-config.outputs.ecr-uri }}"
           
-          # Push with commit SHA tag
+          # Push with all tags (Lambda name + commit SHA, short SHA, and latest)
           docker push ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}
-          
-          # Push with latest tag
+          docker push ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag-short }}
           docker push ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag-latest }}
           
           echo "Image pushed successfully"
-          echo "Image URI: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
+          echo "Image URIs:"
+          echo "  - ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
+          echo "  - ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag-short }}"
+          echo "  - ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag-latest }}"
 
       - name: Output image details
         run: |
           echo "✅ Successfully built and pushed image for: ${{ matrix.folder }}"
           echo "📦 ECR Repository: ${{ steps.ecr-config.outputs.ecr-uri }}"
-          echo "🏷️  Tags: ${{ steps.image-tag.outputs.tag }}, latest"
+          echo "🏷️  Tags:"
+          echo "   - ${{ steps.image-tag.outputs.tag }}"
+          echo "   - ${{ steps.image-tag.outputs.tag-short }}"
+          echo "   - ${{ steps.image-tag.outputs.tag-latest }}"
 
