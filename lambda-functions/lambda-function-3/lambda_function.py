@@ -31,7 +31,7 @@ def lambda_handler(event, context):
             'body': json.dumps({
                 'message': 'Data processed successfully',
                 'function': 'lambda-function-3',
-                'version': '1.1.0',
+                'version': '1.2.0',
                 'result': result,
                 'request_id': context.aws_request_id
             })

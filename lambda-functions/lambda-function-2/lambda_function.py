@@ -20,7 +20,7 @@ def lambda_handler(event, context):
         'body': json.dumps({
             'message': 'Hello from Lambda!',
             'function': 'lambda-function-2',
-            'version': '2.0.0',
+            'version': '2.1.0',
             'timestamp': datetime.utcnow().isoformat(),
             'event': event
         })

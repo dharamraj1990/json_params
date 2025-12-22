@@ -22,7 +22,7 @@ def lambda_handler(event, context):
         response_data = {
             'message': 'Request processed successfully',
             'function': 'lambda-function-4',
-            'version': '1.0.1',
+            'version': '1.1.0',
             'timestamp': datetime.utcnow().isoformat(),
             'data': processed_data,
             'settings': settings

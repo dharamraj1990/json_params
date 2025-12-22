@@ -35,7 +35,7 @@ def lambda_handler(event, context):
             'body': json.dumps({
                 'message': 'Order processed successfully',
                 'function': 'lambda-function-5',
-                'version': '1.0.1',
+                'version': '1.1.0',
                 'order_id': order.id,
                 'user_id': user.id,
                 'result': result,
