@@ -115,19 +115,15 @@ jobs:
             # Convert to JSON array properly - ensure compact JSON without extra whitespace
             # Use jq -c to get compact JSON (single line, no extra whitespace)
             JSON_FOLDERS=$(printf '%s\n' "${FOLDER_ARRAY[@]}" | jq -R . | jq -s . | jq -c .)
-            # Remove any trailing newlines (jq -c should already produce single line, but be safe)
-            JSON_FOLDERS=$(echo "$JSON_FOLDERS" | tr -d '\n' | sed 's/[[:space:]]*$//')
+            # Remove any trailing newlines and ensure it's truly a single line
+            JSON_FOLDERS=$(echo -n "$JSON_FOLDERS" | tr -d '\n\r')
             # Validate JSON is valid
             if ! echo "$JSON_FOLDERS" | jq empty > /dev/null 2>&1; then
               echo "ERROR: Generated invalid JSON: $JSON_FOLDERS"
               exit 1
             fi
-            # Use delimiter syntax to properly handle JSON output
-            {
-              echo "folders-json<<JSONEOF"
-              echo "$JSON_FOLDERS"
-              echo "JSONEOF"
-            } >> $GITHUB_OUTPUT
+            # Output JSON directly (compact JSON should work without delimiter syntax)
+            echo "folders-json=$JSON_FOLDERS" >> $GITHUB_OUTPUT
             echo "JSON output (compact): $JSON_FOLDERS"
           fi
 
