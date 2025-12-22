@@ -32,7 +32,7 @@ def lambda_handler(event, context):
     response_data = {
         'message': 'Hello from Lambda!',
         'function': 'lambda-function-1',
-        'version': '1.6.0',
+        'version': '1.7.0',
         'timestamp': timestamp,
         'event_type': event_type,
         'environment': env_vars,
@@ -40,7 +40,8 @@ def lambda_handler(event, context):
         'remaining_time_ms': context.get_remaining_time_in_millis(),
         'deployment': 'automated',
         'build_date': timestamp,
-        'environment': 'dev'
+        'environment': 'dev',
+        'last_updated': timestamp
         'event': event
     }
     
