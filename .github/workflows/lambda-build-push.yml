@@ -113,10 +113,12 @@ jobs:
             echo "folders=$EXISTING_FOLDERS" >> $GITHUB_OUTPUT
             
             # Convert to JSON array properly - ensure compact JSON without extra whitespace
-            # Use jq -c to get compact JSON, then remove all newlines
-            JSON_FOLDERS=$(printf '%s\n' "${FOLDER_ARRAY[@]}" | jq -R . | jq -s . | jq -c . | tr -d '\n' | tr -d ' ')
+            # Use jq -c to get compact JSON (single line, no extra whitespace)
+            JSON_FOLDERS=$(printf '%s\n' "${FOLDER_ARRAY[@]}" | jq -R . | jq -s . | jq -c .)
+            # Remove any trailing newlines (jq -c should already produce single line, but be safe)
+            JSON_FOLDERS=$(echo "$JSON_FOLDERS" | tr -d '\n' | sed 's/[[:space:]]*$//')
             # Validate JSON is valid
-            if ! echo "$JSON_FOLDERS" | jq . > /dev/null 2>&1; then
+            if ! echo "$JSON_FOLDERS" | jq empty > /dev/null 2>&1; then
               echo "ERROR: Generated invalid JSON: $JSON_FOLDERS"
               exit 1
             fi
