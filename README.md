@@ -17,8 +17,7 @@ your-repo/
 ├── .github/
 │   ├── workflows/
 │   │   └── lambda-build-push.yml    # Main workflow file
-│   ├── lambda-ecr-mapping.txt        # Folder to ECR repository mapping
-│   └── Dockerfile.template           # Dockerfile template
+│   └── lambda-ecr-mapping.txt        # Folder to ECR repository mapping
 ├── lambda-functions/
 │   ├── lambda-function-1/
 │   │   ├── Dockerfile
@@ -70,7 +69,7 @@ aws ecr create-repository --repository-name lambda-function-2-repo --region us-e
 
 #### Option D: Using Terraform or CloudFormation
 
-See `scripts/README.md` for Terraform and CloudFormation templates.
+Terraform and CloudFormation templates are available in the `scripts/` directory.
 
 **Note:** Make sure AWS credentials are configured (`aws configure`) before running any script.
 
@@ -95,27 +94,19 @@ You have two options:
 2. Add the role ARN to GitHub Secrets as `AWS_ROLE_TO_ASSUME`
 
 Required IAM permissions:
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ecr:GetAuthorizationToken",
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage",
-        "ecr:PutImage",
-        "ecr:InitiateLayerUpload",
-        "ecr:UploadLayerPart",
-        "ecr:CompleteLayerUpload"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+- `ecr:GetAuthorizationToken`
+- `ecr:BatchCheckLayerAvailability`
+- `ecr:GetDownloadUrlForLayer`
+- `ecr:BatchGetImage`
+- `ecr:PutImage`
+- `ecr:InitiateLayerUpload`
+- `ecr:UploadLayerPart`
+- `ecr:CompleteLayerUpload`
+- `ecr:DescribeRepositories`
+- `ecr:DescribeImages`
+- `ecr:ListImages`
+
+These should be applied to resources: `arn:aws:ecr:*:*:repository/lambda-function-*`
 
 #### Option B: Access Keys (Less Secure)
 
@@ -138,7 +129,7 @@ Edit `.github/workflows/lambda-build-push.yml`:
 
 For each Lambda function, create a folder under `lambda-functions/` with:
 
-- **Dockerfile**: Copy from `.github/Dockerfile.template` and customize
+- **Dockerfile**: Docker configuration for building the Lambda image
 - **requirements.txt**: Python dependencies
 - **lambda_function.py**: Your Lambda handler code
 
