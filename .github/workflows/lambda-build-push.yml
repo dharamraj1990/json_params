@@ -29,6 +29,11 @@ jobs:
         with:
           fetch-depth: 2  # Need depth 2 to compare with previous commit
 
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
       - name: Detect changed folders
         id: changes
         run: |
@@ -46,7 +51,7 @@ jobs:
           # If BASE_SHA is empty or same as HEAD, check all folders
           if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" == "$HEAD_SHA" ] || [ "$BASE_SHA" == "0000000000000000000000000000000000000000" ]; then
             echo "No previous commit found, checking all lambda function folders"
-            CHANGED_FOLDERS=$(find lambda-functions -mindepth 1 -maxdepth 1 -type d | sort)
+            CHANGED_FOLDERS=$(find lambda-functions -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
           else
             # Get changed files and extract unique folder names
             CHANGED_FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA)
@@ -57,28 +62,37 @@ jobs:
             CHANGED_FOLDERS=$(echo "$CHANGED_FILES" | grep "^lambda-functions/" | cut -d'/' -f2 | sort -u)
           fi
 
-          # Filter to only include folders that exist
-          EXISTING_FOLDERS=""
+          # Filter to only include folders that exist and build JSON array
+          FOLDER_ARRAY=()
           for folder in $CHANGED_FOLDERS; do
             if [ -d "lambda-functions/$folder" ]; then
-              EXISTING_FOLDERS="$EXISTING_FOLDERS $folder"
+              FOLDER_ARRAY+=("$folder")
             fi
           done
 
-          # Trim whitespace and convert to space-separated string
-          EXISTING_FOLDERS=$(echo $EXISTING_FOLDERS | xargs)
-
-          if [ -z "$EXISTING_FOLDERS" ]; then
+          if [ ${#FOLDER_ARRAY[@]} -eq 0 ]; then
             echo "No lambda function folders changed"
             echo "folders=" >> $GITHUB_OUTPUT
-            echo "folders-json=[]" >> $GITHUB_OUTPUT
+            {
+              echo "folders-json<<EOF"
+              echo "[]"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
           else
+            # Create space-separated string for folders output
+            EXISTING_FOLDERS=$(IFS=' '; echo "${FOLDER_ARRAY[*]}")
             echo "Changed folders: $EXISTING_FOLDERS"
             echo "folders=$EXISTING_FOLDERS" >> $GITHUB_OUTPUT
             
-            # Convert to JSON array
-            JSON_FOLDERS=$(echo $EXISTING_FOLDERS | tr ' ' '\n' | jq -R . | jq -s .)
-            echo "folders-json=$JSON_FOLDERS" >> $GITHUB_OUTPUT
+            # Convert to JSON array properly - use delimiter syntax for multiline output
+            JSON_FOLDERS=$(printf '%s\n' "${FOLDER_ARRAY[@]}" | jq -R . | jq -s .)
+            # Use delimiter syntax to properly handle JSON output
+            {
+              echo "folders-json<<EOF"
+              echo "$JSON_FOLDERS"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
+            echo "JSON output: $JSON_FOLDERS"
           fi
 
       - name: Output changed folders
