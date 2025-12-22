@@ -48,27 +48,55 @@ jobs:
             HEAD_SHA="${{ github.sha }}"
           fi
 
-          # If BASE_SHA is empty or same as HEAD, check all folders
+          echo "BASE_SHA: $BASE_SHA"
+          echo "HEAD_SHA: $HEAD_SHA"
+          echo "Event: ${{ github.event_name }}"
+
+          # Get changed files and extract unique folder names
           if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" == "$HEAD_SHA" ] || [ "$BASE_SHA" == "0000000000000000000000000000000000000000" ]; then
-            echo "No previous commit found, checking all lambda function folders"
-            CHANGED_FOLDERS=$(find lambda-functions -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+            echo "No previous commit found or initial commit, checking all lambda function folders"
+            # Get all folders in lambda-functions directory
+            if [ -d "lambda-functions" ]; then
+              CHANGED_FOLDERS=$(ls -d lambda-functions/*/ 2>/dev/null | xargs -n1 basename | sort)
+            else
+              CHANGED_FOLDERS=""
+            fi
           else
             # Get changed files and extract unique folder names
-            CHANGED_FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA)
+            # Try multiple methods to get changed files
+            if git rev-parse --verify "$BASE_SHA" >/dev/null 2>&1; then
+              CHANGED_FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA 2>/dev/null || echo "")
+            else
+              # If BASE_SHA doesn't exist, compare with HEAD~1
+              CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+            fi
+            
             echo "Changed files:"
             echo "$CHANGED_FILES"
             
             # Extract unique folder names from lambda-functions directory
-            CHANGED_FOLDERS=$(echo "$CHANGED_FILES" | grep "^lambda-functions/" | cut -d'/' -f2 | sort -u)
+            if [ -n "$CHANGED_FILES" ]; then
+              CHANGED_FOLDERS=$(echo "$CHANGED_FILES" | grep "^lambda-functions/" | cut -d'/' -f2 | sort -u | tr '\n' ' ' | xargs)
+            else
+              CHANGED_FOLDERS=""
+            fi
           fi
+
+          echo "Detected folders: $CHANGED_FOLDERS"
 
           # Filter to only include folders that exist and build JSON array
           FOLDER_ARRAY=()
-          for folder in $CHANGED_FOLDERS; do
-            if [ -d "lambda-functions/$folder" ]; then
-              FOLDER_ARRAY+=("$folder")
-            fi
-          done
+          if [ -n "$CHANGED_FOLDERS" ]; then
+            for folder in $CHANGED_FOLDERS; do
+              folder=$(echo "$folder" | xargs)  # Trim whitespace
+              if [ -n "$folder" ] && [ -d "lambda-functions/$folder" ]; then
+                FOLDER_ARRAY+=("$folder")
+                echo "Added folder: $folder"
+              fi
+            done
+          fi
+
+          echo "Final folder array size: ${#FOLDER_ARRAY[@]}"
 
           if [ ${#FOLDER_ARRAY[@]} -eq 0 ]; then
             echo "No lambda function folders changed"
@@ -97,12 +125,19 @@ jobs:
 
       - name: Output changed folders
         run: |
-          echo "Changed folders: ${{ steps.changes.outputs.folders }}"
-          echo "JSON: ${{ steps.changes.outputs.folders-json }}"
+          echo "=== Change Detection Results ==="
+          echo "Folders output: '${{ steps.changes.outputs.folders }}'"
+          echo "Folders JSON output: '${{ steps.changes.outputs.folders-json }}'"
+          echo "Folders output length: ${#{{ steps.changes.outputs.folders }}}"
+          if [ -z "${{ steps.changes.outputs.folders }}" ]; then
+            echo "⚠️  WARNING: Folders output is empty - build job will be skipped"
+          else
+            echo "✅ Folders detected - build job will run"
+          fi
 
   build-and-push:
     needs: detect-changes
-    if: needs.detect-changes.outputs.folders != ''
+    if: needs.detect-changes.outputs.folders != '' && needs.detect-changes.outputs.folders-json != '[]'
     runs-on: ubuntu-latest
     strategy:
       matrix:
