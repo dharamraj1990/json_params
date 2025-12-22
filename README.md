@@ -1,2 +1,236 @@
-# json_params
-json_params
+# Lambda Functions CI/CD Workflow
+
+This repository contains a GitHub Actions workflow that automatically builds Docker images and pushes them to AWS ECR when Lambda function code changes are detected.
+
+## Features
+
+- ✅ **Automatic Change Detection**: Detects which Lambda function folders have changed
+- ✅ **Parallel Builds**: Builds multiple Lambda functions in parallel when multiple folders are changed
+- ✅ **ECR Integration**: Pushes images to respective ECR repositories for each Lambda function
+- ✅ **Smart Tagging**: Tags images with commit SHA and `latest` tag
+- ✅ **Fail-Safe**: Continues building other images even if one fails
+
+## Repository Structure
+
+```
+your-repo/
+├── .github/
+│   ├── workflows/
+│   │   └── lambda-build-push.yml    # Main workflow file
+│   ├── lambda-ecr-mapping.txt        # Folder to ECR repository mapping
+│   └── Dockerfile.template           # Dockerfile template
+├── lambda-functions/
+│   ├── lambda-function-1/
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── lambda_function.py
+│   ├── lambda-function-2/
+│   │   └── ...
+│   └── ... (up to 10 lambda functions)
+└── README.md
+```
+
+## Setup Instructions
+
+### 1. Create ECR Repositories
+
+You have multiple options to create ECR repositories:
+
+#### Option A: Using the Automated Script (Recommended)
+
+```bash
+# Set AWS region (optional, defaults to us-east-1)
+export AWS_REGION=us-east-1
+
+# Run the script (reads from .github/lambda-ecr-mapping.txt)
+./scripts/create-ecr-repositories.sh
+```
+
+The script will:
+- Read repository names from `.github/lambda-ecr-mapping.txt`
+- Create all ECR repositories automatically
+- Skip repositories that already exist
+- Display repository URIs after creation
+
+#### Option B: Using Python Script
+
+```bash
+pip install boto3
+python3 scripts/create-ecr-repositories.py
+```
+
+#### Option C: Manual AWS CLI
+
+```bash
+# Create repositories one by one
+aws ecr create-repository --repository-name lambda-function-1-repo --region us-east-1
+aws ecr create-repository --repository-name lambda-function-2-repo --region us-east-1
+# ... repeat for all 10 functions
+```
+
+#### Option D: Using Terraform or CloudFormation
+
+See `scripts/README.md` for Terraform and CloudFormation templates.
+
+**Note:** Make sure AWS credentials are configured (`aws configure`) before running any script.
+
+### 2. Configure ECR Mapping
+
+Edit `.github/lambda-ecr-mapping.txt` and map each folder to its ECR repository:
+
+```
+lambda-function-1:lambda-function-1-repo
+lambda-function-2:lambda-function-2-repo
+lambda-function-3:lambda-function-3-repo
+...
+```
+
+### 3. Set Up AWS Credentials in GitHub
+
+You have two options:
+
+#### Option A: IAM Role (Recommended - More Secure)
+
+1. Create an IAM role in AWS with ECR permissions
+2. Add the role ARN to GitHub Secrets as `AWS_ROLE_TO_ASSUME`
+
+Required IAM permissions:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:PutImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+#### Option B: Access Keys (Less Secure)
+
+1. Create an IAM user with ECR permissions
+2. Add to GitHub Secrets:
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+
+Then update the workflow file to use access keys instead of IAM role.
+
+### 4. Configure Workflow Settings
+
+Edit `.github/workflows/lambda-build-push.yml`:
+
+- Update `AWS_REGION` in the `env` section (default: `us-east-1`)
+- Update branch names if different from `main` or `develop`
+- Adjust paths if your Lambda functions are in a different directory
+
+### 5. Create Lambda Function Folders
+
+For each Lambda function, create a folder under `lambda-functions/` with:
+
+- **Dockerfile**: Copy from `.github/Dockerfile.template` and customize
+- **requirements.txt**: Python dependencies
+- **lambda_function.py**: Your Lambda handler code
+
+Example Dockerfile:
+```dockerfile
+FROM public.ecr.aws/lambda/python:3.11
+WORKDIR ${LAMBDA_TASK_ROOT}
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD [ "lambda_function.lambda_handler" ]
+```
+
+## How It Works
+
+1. **Change Detection**: When code is pushed, the workflow detects which folders under `lambda-functions/` have changed
+2. **Parallel Execution**: For each changed folder, a separate build job runs in parallel
+3. **Image Building**: Each job builds a Docker image for its Lambda function
+4. **ECR Push**: Images are tagged with the commit SHA and `latest`, then pushed to the respective ECR repository
+
+## Workflow Triggers
+
+The workflow runs on:
+- Push to `main` or `develop` branches (only if files in `lambda-functions/` change)
+- Pull requests to `main` or `develop` branches (only if files in `lambda-functions/` change)
+
+## Example Scenarios
+
+### Scenario 1: Single Folder Changed
+- Change made to `lambda-functions/lambda-function-1/`
+- Only `lambda-function-1` image is built and pushed to its ECR repo
+
+### Scenario 2: Multiple Folders Changed
+- Changes made to `lambda-functions/lambda-function-1/` and `lambda-functions/lambda-function-3/`
+- Both images are built in parallel and pushed to their respective ECR repos
+
+### Scenario 3: No Lambda Function Changes
+- Changes made outside `lambda-functions/` directory
+- Workflow detects no changes and skips execution
+
+## Image Tags
+
+Each image is tagged with:
+- **Commit SHA**: `abc123def456...` (for traceability)
+- **Latest**: `latest` (for convenience)
+
+Example:
+- `123456789.dkr.ecr.us-east-1.amazonaws.com/lambda-function-1-repo:abc123def456`
+- `123456789.dkr.ecr.us-east-1.amazonaws.com/lambda-function-1-repo:latest`
+
+## Troubleshooting
+
+### Workflow not triggering
+- Ensure changes are in `lambda-functions/` directory
+- Check that workflow file is in `.github/workflows/` directory
+- Verify branch names match your repository
+
+### ECR push fails
+- Verify AWS credentials are correctly configured
+- Check IAM permissions for ECR operations
+- Ensure ECR repositories exist and names match the mapping file
+
+### Build fails
+- Check Dockerfile syntax
+- Verify all dependencies in requirements.txt are valid
+- Check Lambda handler path in Dockerfile CMD
+
+## Customization
+
+### Change AWS Region
+Update `AWS_REGION` in the workflow file's `env` section.
+
+### Change Branch Names
+Update the `on.push.branches` section in the workflow file.
+
+### Change Lambda Function Directory
+Update the `paths` filter and folder detection logic in the workflow.
+
+### Add Environment Variables
+Add environment variables to the workflow or use GitHub Secrets for sensitive values.
+
+## Security Best Practices
+
+1. ✅ Use IAM roles instead of access keys when possible
+2. ✅ Limit IAM permissions to only what's needed (ECR operations)
+3. ✅ Use GitHub Secrets for sensitive information
+4. ✅ Enable ECR image scanning in AWS
+5. ✅ Use specific image tags (commit SHA) instead of `latest` in production
+
+## Support
+
+For issues or questions, please check:
+- GitHub Actions logs for detailed error messages
+- AWS CloudWatch logs for ECR operations
+- IAM policy permissions

@@ -1,0 +1,177 @@
+name: Build and Push Lambda Images to ECR
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'lambda-functions/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'lambda-functions/**'
+
+env:
+  AWS_REGION: us-east-1  # Change to your AWS region
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed-folders: ${{ steps.changes.outputs.folders }}
+      folders-json: ${{ steps.changes.outputs.folders-json }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need depth 2 to compare with previous commit
+
+      - name: Detect changed folders
+        id: changes
+        run: |
+          # Get list of changed files
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            # For PRs, compare with base branch
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.sha }}"
+          else
+            # For pushes, compare with previous commit
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
+          fi
+
+          # If BASE_SHA is empty or same as HEAD, check all folders
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" == "$HEAD_SHA" ] || [ "$BASE_SHA" == "0000000000000000000000000000000000000000" ]; then
+            echo "No previous commit found, checking all lambda function folders"
+            CHANGED_FOLDERS=$(find lambda-functions -mindepth 1 -maxdepth 1 -type d | sort)
+          else
+            # Get changed files and extract unique folder names
+            CHANGED_FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA)
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+            
+            # Extract unique folder names from lambda-functions directory
+            CHANGED_FOLDERS=$(echo "$CHANGED_FILES" | grep "^lambda-functions/" | cut -d'/' -f2 | sort -u)
+          fi
+
+          # Filter to only include folders that exist
+          EXISTING_FOLDERS=""
+          for folder in $CHANGED_FOLDERS; do
+            if [ -d "lambda-functions/$folder" ]; then
+              EXISTING_FOLDERS="$EXISTING_FOLDERS $folder"
+            fi
+          done
+
+          # Trim whitespace and convert to space-separated string
+          EXISTING_FOLDERS=$(echo $EXISTING_FOLDERS | xargs)
+
+          if [ -z "$EXISTING_FOLDERS" ]; then
+            echo "No lambda function folders changed"
+            echo "folders=" >> $GITHUB_OUTPUT
+            echo "folders-json=[]" >> $GITHUB_OUTPUT
+          else
+            echo "Changed folders: $EXISTING_FOLDERS"
+            echo "folders=$EXISTING_FOLDERS" >> $GITHUB_OUTPUT
+            
+            # Convert to JSON array
+            JSON_FOLDERS=$(echo $EXISTING_FOLDERS | tr ' ' '\n' | jq -R . | jq -s .)
+            echo "folders-json=$JSON_FOLDERS" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Output changed folders
+        run: |
+          echo "Changed folders: ${{ steps.changes.outputs.folders }}"
+          echo "JSON: ${{ steps.changes.outputs.folders-json }}"
+
+  build-and-push:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.folders != ''
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        folder: ${{ fromJson(needs.detect-changes.outputs.folders-json) }}
+      fail-fast: false  # Continue building other images even if one fails
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}  # IAM Role ARN
+          aws-region: ${{ env.AWS_REGION }}
+        # Alternative: Use access keys (less secure)
+        # with:
+        #   aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        #   aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        #   aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Read ECR repository mapping
+        id: ecr-config
+        run: |
+          # Read the ECR mapping from config file
+          ECR_REPO=$(grep "^${{ matrix.folder }}:" .github/lambda-ecr-mapping.txt | cut -d':' -f2 | xargs)
+          
+          if [ -z "$ECR_REPO" ]; then
+            echo "ERROR: No ECR repository mapping found for folder: ${{ matrix.folder }}"
+            exit 1
+          fi
+          
+          echo "ECR Repository: $ECR_REPO"
+          echo "ecr-repo=$ECR_REPO" >> $GITHUB_OUTPUT
+          
+          # Extract account ID and region from ECR repo if needed
+          # Format: <account-id>.dkr.ecr.<region>.amazonaws.com/<repo-name>
+          # Or just: <repo-name> (we'll construct full URI)
+          FULL_ECR_URI="${{ steps.login-ecr.outputs.registry }}/$ECR_REPO"
+          echo "ecr-uri=$FULL_ECR_URI" >> $GITHUB_OUTPUT
+
+      - name: Set image tag
+        id: image-tag
+        run: |
+          # Use commit SHA as tag for traceability
+          IMAGE_TAG="${{ github.sha }}"
+          # Also create a 'latest' tag
+          echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "tag-latest=latest" >> $GITHUB_OUTPUT
+          echo "Image will be tagged as: $IMAGE_TAG and latest"
+
+      - name: Build Docker image
+        working-directory: lambda-functions/${{ matrix.folder }}
+        run: |
+          echo "Building Docker image for lambda function: ${{ matrix.folder }}"
+          docker build -t ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }} \
+                       -t ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag-latest }} \
+                       .
+          
+          echo "Image built successfully"
+
+      - name: Push Docker image to ECR
+        run: |
+          echo "Pushing image to ECR: ${{ steps.ecr-config.outputs.ecr-uri }}"
+          
+          # Push with commit SHA tag
+          docker push ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}
+          
+          # Push with latest tag
+          docker push ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag-latest }}
+          
+          echo "Image pushed successfully"
+          echo "Image URI: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
+
+      - name: Output image details
+        run: |
+          echo "✅ Successfully built and pushed image for: ${{ matrix.folder }}"
+          echo "📦 ECR Repository: ${{ steps.ecr-config.outputs.ecr-uri }}"
+          echo "🏷️  Tags: ${{ steps.image-tag.outputs.tag }}, latest"
+
