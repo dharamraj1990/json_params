@@ -59,16 +59,15 @@ done
 
 **Note:** Make sure AWS credentials are configured (`aws configure`) before running commands.
 
-### 2. Configure ECR Mapping
+### 2. ECR Repository Naming Convention
 
-Edit `.github/lambda-ecr-mapping.txt` and map each folder to its ECR repository:
+The workflow uses a naming convention: `<folder-name>-repo`
 
-```
-lambda-function-1:lambda-function-1-repo
-lambda-function-2:lambda-function-2-repo
-lambda-function-3:lambda-function-3-repo
-...
-```
+For example:
+- `lambda-function-1` folder → ECR repository: `lambda-function-1-repo`
+- `lambda-function-2` folder → ECR repository: `lambda-function-2-repo`
+
+Make sure your ECR repository names follow this pattern.
 
 ### 3. Set Up AWS Credentials in GitHub
 
