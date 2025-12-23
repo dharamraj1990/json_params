@@ -229,89 +229,54 @@ CMD [ "lambda_function.lambda_handler" ]
 ## Workflow Triggers
 
 The workflow runs on:
-- Push to any branch (only if files in `lambda-functions/` change)
-- Pull requests to `main`, `develop`, or `staging` branches (only if files in `lambda-functions/` change)
+- Push to `develop` or `release` branches (only if files in `lambda-functions/` change)
+- Pull requests to `develop` or `release` branches (only if files in `lambda-functions/` change)
 
-## Advanced Branching Strategy
+## Branching Strategy
 
-The workflow implements a sophisticated branching strategy that automatically determines which environment to deploy to based on the branch name:
+The workflow uses a simple two-branch strategy:
 
 ### Branch Types and Deployment Behavior
 
-| Branch Pattern | Branch Type | Build | Deploy Dev | Deploy Staging | Deploy Production |
-|---------------|-------------|-------|------------|----------------|-------------------|
-| `main` / `master` | Main | ✅ | ❌ | ❌ | ✅ (with approval) |
-| `develop` / `dev` | Develop | ✅ | ✅ (automatic) | ❌ | ❌ |
-| `staging` | Staging | ✅ | ❌ | ✅ (with approval) | ❌ |
-| `release/*` / `release-*` | Release | ✅ | ❌ | ✅ (with approval) | ❌ |
-| `hotfix/*` / `hotfix-*` | Hotfix | ✅ | ✅ (automatic) | ✅ (with approval) | ✅ (with approval) |
-| `feature/*` / `feat/*` | Feature | ✅ | ❌ | ❌ | ❌ |
-| Pull Requests | PR | ✅ | ❌ | ❌ | ❌ |
-| Other branches | Unknown | ✅ | ❌ | ❌ | ❌ |
+| Branch | Build | Deploy Dev | Deploy Staging | Deploy Production |
+|--------|-------|------------|----------------|-------------------|
+| `develop` | ✅ | ✅ (automatic) | ❌ | ❌ |
+| `release` | ✅ | ❌ | ✅ (with approval) | ✅ (with approval) |
+| Pull Requests | ✅ | ❌ | ❌ | ❌ |
 
 ### Branch Strategy Details
 
-#### 1. **Main Branch** (`main` / `master`)
-- **Purpose**: Production deployments
-- **Build**: ✅ Yes
-- **Deploy**: Production only (with manual approval)
-- **Use Case**: Stable, production-ready code
-
-#### 2. **Develop Branch** (`develop` / `dev`)
+#### 1. **Develop Branch** (`develop`)
 - **Purpose**: Development environment
 - **Build**: ✅ Yes
 - **Deploy**: Dev environment only (automatic, no approval)
 - **Use Case**: Active development and testing
+- **Lambda Functions**: `dev-us-east-lambda-1`, `dev-us-east-lambda-2`, etc.
 
-#### 3. **Staging/Release Branches** (`staging`, `release/*`, `release-*`)
-- **Purpose**: Pre-production testing
+#### 2. **Release Branch** (`release`)
+- **Purpose**: Staging and Production deployments
 - **Build**: ✅ Yes
-- **Deploy**: Staging environment only (with manual approval)
-- **Use Case**: Final testing before production
+- **Deploy**: 
+  - Staging environment (with manual approval)
+  - Production environment (with manual approval)
+- **Use Case**: Pre-production testing and production releases
+- **Lambda Functions**: 
+  - Staging: `stg-us-east-lambda-1`, `stg-us-east-lambda-2`, etc.
+  - Production: `prd-us-east-lambda-1`, `prd-us-east-lambda-2`, etc.
 
-#### 4. **Hotfix Branches** (`hotfix/*`, `hotfix-*`)
-- **Purpose**: Critical production fixes
-- **Build**: ✅ Yes
-- **Deploy**: All environments (Dev automatic, Staging/Prod with approval)
-- **Use Case**: Urgent fixes that need to bypass normal flow
-
-#### 5. **Feature Branches** (`feature/*`, `feat/*`, `feature-*`, `feat-*`)
-- **Purpose**: New feature development
-- **Build**: ✅ Yes
-- **Deploy**: ❌ No deployment (build only)
-- **Use Case**: Isolated feature development
-
-#### 6. **Pull Requests**
+#### 3. **Pull Requests**
 - **Purpose**: Code review and validation
 - **Build**: ✅ Yes
 - **Deploy**: ❌ No deployment (build only)
 - **Use Case**: Validate changes before merging
 
-### Deployment Flow Examples
+### Deployment Flow
 
-#### Example 1: Feature Development
 ```
-feature/new-api → Build only → No deployment
-     ↓
 develop → Build + Deploy to Dev (automatic)
      ↓
-staging → Build + Deploy to Staging (with approval)
-     ↓
-main → Build + Deploy to Production (with approval)
-```
-
-#### Example 2: Hotfix
-```
-hotfix/critical-bug → Build + Deploy to Dev (automatic)
-                    → Deploy to Staging (with approval)
-                    → Deploy to Production (with approval)
-```
-
-#### Example 3: Release
-```
-release/v1.2.0 → Build + Deploy to Staging (with approval)
-     ↓
-main → Build + Deploy to Production (with approval)
+release → Build + Deploy to Staging (with approval)
+       → Deploy to Production (with approval)
 ```
 
 ## Example Scenarios
@@ -340,29 +305,36 @@ Example:
 ## Deployment Flow
 
 ### Automatic Deployment (Dev)
-- Triggers on: `develop`/`dev` branches, `hotfix/*` branches
-- No approval required
-- Updates Lambda functions: `dev-us-east-lambda-1`, `dev-us-east-lambda-2`, etc.
+- **Triggers on**: `develop` branch
+- **Approval**: No approval required (automatic)
+- **Lambda Functions**: `dev-us-east-lambda-1`, `dev-us-east-lambda-2`, etc.
+- **AWS Account**: Uses `AWS_ACCOUNT_DEV` (default: `533269020590`)
 
 ### Manual Approval (Staging)
-- Triggers on: `staging` branch, `release/*` branches, `hotfix/*` branches
-- Requires manual approval via GitHub Issue
-- Workflow creates an approval issue and waits for `/approve` comment
-- Once approved, deployment proceeds automatically
-- Updates Lambda functions: `stg-us-east-lambda-1`, `stg-us-east-lambda-2`, etc.
+- **Triggers on**: `release` branch
+- **Approval**: Requires manual approval via GitHub Issue
+- **Process**: 
+  1. Workflow creates an approval issue
+  2. Comment `/approve` on the issue to proceed
+  3. Deployment continues automatically after approval
+- **Lambda Functions**: `stg-us-east-lambda-1`, `stg-us-east-lambda-2`, etc.
+- **AWS Account**: Uses `AWS_ACCOUNT_STAGING` (default: `533269020590`)
 
 ### Manual Approval (Production)
-- Triggers on: `main`/`master` branch, `hotfix/*` branches
-- Requires manual approval via GitHub Issue
-- Workflow creates an approval issue and waits for `/approve` comment
-- Once approved, deployment proceeds automatically
-- Updates Lambda functions: `prd-us-east-lambda-1`, `prd-us-east-lambda-2`, etc.
+- **Triggers on**: `release` branch
+- **Approval**: Requires manual approval via GitHub Issue
+- **Process**: 
+  1. Workflow creates an approval issue
+  2. Comment `/approve` on the issue to proceed
+  3. Deployment continues automatically after approval
+- **Lambda Functions**: `prd-us-east-lambda-1`, `prd-us-east-lambda-2`, etc.
+- **AWS Account**: Uses `AWS_ACCOUNT_PROD` (default: `533269020590`)
 
 ### Build Only (No Deployment)
-- Triggers on: `feature/*` branches, Pull Requests, other branches
-- Images are built and pushed to ECR
-- No Lambda function deployment
-- Useful for validation and testing
+- **Triggers on**: Pull Requests
+- **Behavior**: Images are built and pushed to ECR
+- **Deployment**: No Lambda function deployment
+- **Use Case**: Validation and testing before merging
 
 ## Troubleshooting
 

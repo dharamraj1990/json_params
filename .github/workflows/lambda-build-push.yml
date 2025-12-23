@@ -3,20 +3,14 @@ name: Build, Push and Deploy Lambda Functions
 on:
   push:
     branches:
-      - main
       - develop
-      - staging
-      - release/**
-      - hotfix/**
-      - feature/**
-      - feat/**
+      - release
     paths:
       - 'lambda-functions/**'
   pull_request:
     branches:
-      - main
       - develop
-      - staging
+      - release
     paths:
       - 'lambda-functions/**'
 
@@ -63,41 +57,20 @@ jobs:
             BRANCH_TYPE="pull_request"
             echo "🔍 Pull Request detected - Build only, no deployment"
           
-          # Main branch: Production deployment (with approval)
-          elif [ "$BRANCH_REF" == "refs/heads/main" ] || [ "$BRANCH_REF" == "refs/heads/master" ]; then
-            ENVIRONMENT="production"
-            DEPLOY_PROD="true"
-            BRANCH_TYPE="main"
-            echo "🚀 Main branch detected - Production deployment"
-          
-          # Staging/Release branches: Staging deployment (with approval)
-          elif [[ "$BRANCH_NAME" == "staging" ]] || [[ "$BRANCH_NAME" =~ ^release/ ]] || [[ "$BRANCH_NAME" =~ ^release- ]]; then
-            ENVIRONMENT="staging"
-            DEPLOY_STAGING="true"
-            BRANCH_TYPE="staging"
-            echo "🧪 Staging/Release branch detected - Staging deployment"
-          
           # Develop branch: Dev deployment (automatic)
-          elif [ "$BRANCH_REF" == "refs/heads/develop" ] || [ "$BRANCH_REF" == "refs/heads/dev" ]; then
+          elif [ "$BRANCH_REF" == "refs/heads/develop" ]; then
             ENVIRONMENT="dev"
             DEPLOY_DEV="true"
             BRANCH_TYPE="develop"
-            echo "💻 Develop branch detected - Dev deployment"
+            echo "💻 Develop branch detected - Dev deployment (automatic)"
           
-          # Hotfix branches: Can deploy to all environments (based on branch name pattern)
-          elif [[ "$BRANCH_NAME" =~ ^hotfix/ ]] || [[ "$BRANCH_NAME" =~ ^hotfix- ]]; then
-            ENVIRONMENT="hotfix"
-            DEPLOY_DEV="true"
+          # Release branch: Staging and Production deployment (with approval)
+          elif [ "$BRANCH_REF" == "refs/heads/release" ]; then
+            ENVIRONMENT="release"
             DEPLOY_STAGING="true"
             DEPLOY_PROD="true"
-            BRANCH_TYPE="hotfix"
-            echo "🔥 Hotfix branch detected - Can deploy to all environments"
-          
-          # Feature branches: Build only, no deployment (unless explicitly configured)
-          elif [[ "$BRANCH_NAME" =~ ^feature/ ]] || [[ "$BRANCH_NAME" =~ ^feat/ ]] || [[ "$BRANCH_NAME" =~ ^feature- ]] || [[ "$BRANCH_NAME" =~ ^feat- ]]; then
-            ENVIRONMENT="feature"
-            BRANCH_TYPE="feature"
-            echo "✨ Feature branch detected - Build only, no deployment"
+            BRANCH_TYPE="release"
+            echo "🚀 Release branch detected - Staging and Production deployment (with approval)"
           
           # Unknown branch: Build only
           else
