@@ -540,31 +540,34 @@ jobs:
             
             **Note:** Lambda function names follow the pattern: `stg-{region}-lambda-{number}`
 
-      - name: Install GitHub CLI
+      - name: Install jq for JSON parsing
         if: env.APPROVAL_EMAILS_STAGING != ''
         run: |
-          type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt update && sudo apt install gh -y
+          sudo apt-get update
+          sudo apt-get install -y jq curl
 
       - name: Send Email Notification for Staging Approval
         if: env.APPROVAL_EMAILS_STAGING != ''
         run: |
           echo "📧 Sending email notifications for staging approval..."
           
-          # Authenticate GitHub CLI
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          # Set GitHub token for authentication
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           
           # Get the issue URL (the approval action creates an issue)
+          # Try to get the latest open issue (should be the approval issue)
           ISSUE_URL="https://github.com/${{ github.repository }}/issues"
           
-          # Get the latest issue number (approval issue)
-          ISSUE_NUMBER=$(gh issue list --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || echo "")
+          # Get the latest issue number (approval issue) using GitHub API directly
+          ISSUE_NUMBER=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/issues?state=open&per_page=1" | \
+            jq -r '.[0].number // empty' 2>/dev/null || echo "")
           
-          if [ -n "$ISSUE_NUMBER" ]; then
+          if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "null" ]; then
             ISSUE_URL="https://github.com/${{ github.repository }}/issues/${ISSUE_NUMBER}"
+            echo "✅ Found approval issue: ${ISSUE_URL}"
+          else
+            echo "⚠️ Could not find issue number, using general issues URL"
           fi
           
           # Prepare email content
@@ -774,31 +777,34 @@ jobs:
             
             **Note:** Lambda function names follow the pattern: `prd-{region}-lambda-{number}`
 
-      - name: Install GitHub CLI
+      - name: Install jq for JSON parsing
         if: env.APPROVAL_EMAILS_PRODUCTION != ''
         run: |
-          type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt update && sudo apt install gh -y
+          sudo apt-get update
+          sudo apt-get install -y jq curl
 
       - name: Send Email Notification for Production Approval
         if: env.APPROVAL_EMAILS_PRODUCTION != ''
         run: |
           echo "📧 Sending email notifications for production approval..."
           
-          # Authenticate GitHub CLI
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          # Set GitHub token for authentication
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           
           # Get the issue URL (the approval action creates an issue)
+          # Try to get the latest open issue (should be the approval issue)
           ISSUE_URL="https://github.com/${{ github.repository }}/issues"
           
-          # Get the latest issue number (approval issue)
-          ISSUE_NUMBER=$(gh issue list --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || echo "")
+          # Get the latest issue number (approval issue) using GitHub API directly
+          ISSUE_NUMBER=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/issues?state=open&per_page=1" | \
+            jq -r '.[0].number // empty' 2>/dev/null || echo "")
           
-          if [ -n "$ISSUE_NUMBER" ]; then
+          if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "null" ]; then
             ISSUE_URL="https://github.com/${{ github.repository }}/issues/${ISSUE_NUMBER}"
+            echo "✅ Found approval issue: ${ISSUE_URL}"
+          else
+            echo "⚠️ Could not find issue number, using general issues URL"
           fi
           
           # Prepare email content
