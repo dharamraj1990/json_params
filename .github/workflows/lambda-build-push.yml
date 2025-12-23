@@ -251,34 +251,47 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Determine ECR Repository
+      - name: Determine ECR Repository and Lambda Function Name
         id: ecr-config
         run: |
           # Determine which ECR repository to use based on branch/environment
           BRANCH_REF="${{ github.ref }}"
           ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
           
+          # Extract number from folder name (e.g., lambda-function-1 -> 1)
+          FOLDER_NAME="${{ matrix.folder }}"
+          LAMBDA_NUMBER=$(echo "$FOLDER_NAME" | sed 's/lambda-function-//')
+          REGION_FULL="${{ env.AWS_REGION }}"
+          
+          # Determine environment prefix and ECR repository
           if [ "$ENVIRONMENT" == "dev" ] || [ "$BRANCH_REF" == "refs/heads/develop" ]; then
+            ENV_PREFIX="dev"
             ECR_REPO="${{ env.ECR_REPOSITORY_DEV }}"
             echo "Using Dev ECR repository"
           elif [ "$ENVIRONMENT" == "release" ] || [ "$BRANCH_REF" == "refs/heads/release" ]; then
-            # For release branch, push to both staging and production repos
-            # We'll push to staging first, then production can pull from staging if needed
+            # For release branch, we'll push to staging repo first
+            # Production will use staging repo images
+            ENV_PREFIX="stg"
             ECR_REPO="${{ env.ECR_REPOSITORY_STAGING }}"
             echo "Using Staging ECR repository (release branch)"
           else
             # Default to dev for PRs and other branches
+            ENV_PREFIX="dev"
             ECR_REPO="${{ env.ECR_REPOSITORY_DEV }}"
             echo "Using Dev ECR repository (default)"
           fi
           
-          LAMBDA_NAME="${{ matrix.folder }}"
+          # Construct actual Lambda function name: dev-us-east-1-lambda-1
+          ACTUAL_LAMBDA_NAME="${ENV_PREFIX}-${REGION_FULL}-lambda-${LAMBDA_NUMBER}"
           
           echo "Environment: $ENVIRONMENT"
+          echo "Folder Name: $FOLDER_NAME"
+          echo "Lambda Number: $LAMBDA_NUMBER"
+          echo "Actual Lambda Function Name: $ACTUAL_LAMBDA_NAME"
           echo "ECR Repository: $ECR_REPO"
-          echo "Lambda Function: $LAMBDA_NAME"
           echo "ecr-repo=$ECR_REPO" >> $GITHUB_OUTPUT
-          echo "lambda-name=$LAMBDA_NAME" >> $GITHUB_OUTPUT
+          echo "lambda-name=$ACTUAL_LAMBDA_NAME" >> $GITHUB_OUTPUT
+          echo "folder-name=$FOLDER_NAME" >> $GITHUB_OUTPUT
           
           # Construct full ECR URI
           FULL_ECR_URI="${{ steps.login-ecr.outputs.registry }}/$ECR_REPO"
@@ -287,15 +300,16 @@ jobs:
       - name: Set image tag
         id: image-tag
         run: |
-          # Tag image with Lambda function name and commit SHA
-          # Format: <lambda-function-name>-<commit-sha>
-          # Example: lambda-function-1-abc123def456
-          LAMBDA_NAME="${{ steps.ecr-config.outputs.lambda-name }}"
+          # Tag image with actual Lambda function name and commit SHA
+          # Format: <actual-lambda-function-name>-<commit-sha>
+          # Example: dev-us-east-1-lambda-1-abc123def456
+          ACTUAL_LAMBDA_NAME="${{ steps.ecr-config.outputs.lambda-name }}"
           COMMIT_SHA="${{ github.sha }}"
           
-          IMAGE_TAG="${LAMBDA_NAME}-${COMMIT_SHA}"
+          IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${COMMIT_SHA}"
           
           echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "Actual Lambda Function: $ACTUAL_LAMBDA_NAME"
           echo "Image tag: $IMAGE_TAG"
 
       - name: Build Docker image
@@ -318,7 +332,7 @@ jobs:
 
       - name: Output image details
         run: |
-          echo "✅ Successfully built and pushed image for: ${{ matrix.folder }}"
+          echo "✅ Successfully built and pushed image for: ${{ steps.ecr-config.outputs.lambda-name }}"
           echo "📦 ECR Repository: ${{ steps.ecr-config.outputs.ecr-uri }}"
           echo "🏷️  Tag: ${{ steps.image-tag.outputs.tag }}"
           echo "Image URI: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
@@ -355,9 +369,12 @@ jobs:
       - name: Get image URI
         id: image-uri
         run: |
-          IMAGE_TAG="${{ matrix.folder }}-${{ github.sha }}"
+          # Use actual Lambda function name for image tag
+          ACTUAL_LAMBDA_NAME="dev-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
+          IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DEV }}:${IMAGE_TAG}"
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
           echo "ECR Repository: ${{ env.ECR_REPOSITORY_DEV }}"
           echo "Image Tag: ${IMAGE_TAG}"
           echo "Image URI: ${IMAGE_URI}"
@@ -513,8 +530,8 @@ jobs:
             **To reject:** Comment `/reject` on this issue
             
             This deployment will update the following Lambda functions in **staging**:
-            - `stg-us-east-lambda-1` (from lambda-function-1)
-            - `stg-us-east-lambda-2` (from lambda-function-2)
+            - `stg-us-east-1-lambda-1` (from lambda-function-1)
+            - `stg-us-east-1-lambda-2` (from lambda-function-2)
             - (and other changed functions)
             
             **Note:** Lambda function names follow the pattern: `stg-{region}-lambda-{number}`
@@ -549,9 +566,12 @@ jobs:
       - name: Get image URI
         id: image-uri
         run: |
-          IMAGE_TAG="${{ matrix.folder }}-${{ github.sha }}"
+          # Use actual Lambda function name for image tag
+          ACTUAL_LAMBDA_NAME="stg-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
+          IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_STAGING }}:${IMAGE_TAG}"
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
           echo "ECR Repository: ${{ env.ECR_REPOSITORY_STAGING }}"
           echo "Image Tag: ${IMAGE_TAG}"
           echo "Image URI: ${IMAGE_URI}"
@@ -668,8 +688,8 @@ jobs:
             **To reject:** Comment `/reject` on this issue
             
             This deployment will update the following Lambda functions in **PRODUCTION**:
-            - `prd-us-east-lambda-1` (from lambda-function-1)
-            - `prd-us-east-lambda-2` (from lambda-function-2)
+            - `prd-us-east-1-lambda-1` (from lambda-function-1)
+            - `prd-us-east-1-lambda-2` (from lambda-function-2)
             - (and other changed functions)
             
             **Note:** Lambda function names follow the pattern: `prd-{region}-lambda-{number}`
@@ -704,9 +724,12 @@ jobs:
       - name: Get image URI
         id: image-uri
         run: |
-          IMAGE_TAG="${{ matrix.folder }}-${{ github.sha }}"
+          # Use actual Lambda function name for image tag
+          ACTUAL_LAMBDA_NAME="prd-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
+          IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PROD }}:${IMAGE_TAG}"
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
           echo "ECR Repository: ${{ env.ECR_REPOSITORY_PROD }}"
           echo "Image Tag: ${IMAGE_TAG}"
           echo "Image URI: ${IMAGE_URI}"
