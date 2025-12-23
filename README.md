@@ -69,16 +69,50 @@ This allows you to:
 - Easily identify which Lambda function each image belongs to
 - Track versions using commit SHA in the tag
 
-### 3. Set Up AWS Credentials in GitHub
+### 3. Set Up AWS OIDC Authentication
 
-You have two options:
+The workflow uses **OIDC (OpenID Connect)** for secure authentication without storing access keys.
 
-#### Option A: IAM Role (Recommended - More Secure)
+#### Step 1: Configure GitHub OIDC Provider in AWS
 
-1. Create an IAM role in AWS with ECR permissions
-2. Add the role ARN to GitHub Secrets as `AWS_ROLE_TO_ASSUME`
+1. **Create an OIDC Identity Provider in AWS IAM**:
+   - Go to IAM → Identity providers → Add provider
+   - Provider type: **OpenID Connect**
+   - Provider URL: `https://token.actions.githubusercontent.com`
+   - Audience: `sts.amazonaws.com`
+   - Click **Add provider**
 
-Required IAM permissions:
+2. **Create IAM Role for GitHub Actions**:
+   - Go to IAM → Roles → Create role
+   - Trust entity type: **Web identity**
+   - Identity provider: Select the GitHub OIDC provider you just created
+   - Audience: `sts.amazonaws.com`
+   - Add condition:
+     - Key: `StringEquals`
+     - Key: `token.actions.githubusercontent.com:aud`
+     - Value: `sts.amazonaws.com`
+   - Add another condition (optional, for security):
+     - Key: `StringLike`
+     - Key: `token.actions.githubusercontent.com:sub`
+     - Value: `repo:YOUR_GITHUB_USERNAME/YOUR_REPO_NAME:*`
+   - Role name: `oidc-github-action` (or update `OIDC_ROLE_NAME` in workflow)
+   - Attach policies with required permissions (see below)
+
+#### Step 2: Configure AWS Account Numbers (Optional)
+
+If you have different AWS accounts for different environments, add these GitHub Secrets:
+
+- `AWS_ACCOUNT_DEV` - AWS account number for dev environment (default: `533269020590`)
+- `AWS_ACCOUNT_STAGING` - AWS account number for staging environment (default: `533269020590`)
+- `AWS_ACCOUNT_PROD` - AWS account number for production environment (default: `533269020590`)
+
+If not set, all environments will use account `533269020590`.
+
+#### Step 3: Required IAM Permissions
+
+The IAM role needs the following permissions:
+
+**ECR Permissions** (for building and pushing images):
 - `ecr:GetAuthorizationToken`
 - `ecr:BatchCheckLayerAvailability`
 - `ecr:GetDownloadUrlForLayer`
@@ -91,16 +125,20 @@ Required IAM permissions:
 - `ecr:DescribeImages`
 - `ecr:ListImages`
 
-These should be applied to resources: `arn:aws:ecr:*:*:repository/lambda-function-*`
+**Lambda Permissions** (for deploying functions):
+- `lambda:UpdateFunctionCode`
+- `lambda:GetFunction`
+- `lambda:GetFunctionConfiguration`
 
-#### Option B: Access Keys (Less Secure)
+**Resource ARNs**:
+- ECR: `arn:aws:ecr:*:*:repository/lambda-function-*`
+- Lambda: `arn:aws:lambda:*:*:function:*-us-east-lambda-*`
 
-1. Create an IAM user with ECR permissions
-2. Add to GitHub Secrets:
-   - `AWS_ACCESS_KEY_ID`
-   - `AWS_SECRET_ACCESS_KEY`
+#### Step 4: Update Workflow (Already Configured)
 
-Then update the workflow file to use access keys instead of IAM role.
+The workflow is already configured to use OIDC with the role:
+- Role ARN pattern: `arn:aws:iam::{account-id}:role/oidc-github-action`
+- Each environment uses its respective AWS account number
 
 ### 4. Manual Approval Setup (Works on Free GitHub Accounts)
 

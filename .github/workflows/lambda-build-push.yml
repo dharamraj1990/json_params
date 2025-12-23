@@ -17,6 +17,11 @@ on:
 env:
   AWS_REGION: us-east-1  # Change to your AWS region
   ECR_REPOSITORY: lambda-function-1-repo  # Single ECR repository for all Lambda functions
+  # AWS Account Numbers for each environment (can be overridden via secrets)
+  AWS_ACCOUNT_DEV: ${{ secrets.AWS_ACCOUNT_DEV || '533269020590' }}
+  AWS_ACCOUNT_STAGING: ${{ secrets.AWS_ACCOUNT_STAGING || '533269020590' }}
+  AWS_ACCOUNT_PROD: ${{ secrets.AWS_ACCOUNT_PROD || '533269020590' }}
+  OIDC_ROLE_NAME: oidc-github-action  # IAM role name for OIDC authentication
 
 jobs:
   detect-changes:
@@ -162,17 +167,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          # Using Access Keys (configured in GitHub Secrets)
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_DEV }}:role/${{ env.OIDC_ROLE_NAME }}
+          role-session-name: GitHubActions-Build-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
-          # Alternative: Use IAM Role (more secure)
-          # If you want to use IAM Role instead, comment out above and uncomment below:
-          # role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          # aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -255,11 +255,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_DEV }}:role/${{ env.OIDC_ROLE_NAME }}
+          role-session-name: GitHubActions-Dev-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -393,11 +393,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_STAGING }}:role/${{ env.OIDC_ROLE_NAME }}
+          role-session-name: GitHubActions-Staging-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -533,11 +533,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_PROD }}:role/${{ env.OIDC_ROLE_NAME }}
+          role-session-name: GitHubActions-Prod-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
