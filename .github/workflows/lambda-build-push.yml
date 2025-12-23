@@ -25,6 +25,9 @@ env:
   AWS_ACCOUNT_STAGING: ${{ secrets.AWS_ACCOUNT_STAGING || '533269020590' }}
   AWS_ACCOUNT_PROD: ${{ secrets.AWS_ACCOUNT_PROD || '533269020590' }}
   OIDC_ROLE_NAME: oidc-github-action  # IAM role name for OIDC authentication
+  # Email notification settings (comma-separated email addresses)
+  APPROVAL_EMAILS_STAGING: ${{ secrets.APPROVAL_EMAILS_STAGING || '' }}
+  APPROVAL_EMAILS_PRODUCTION: ${{ secrets.APPROVAL_EMAILS_PRODUCTION || '' }}
 
 jobs:
   determine-environment:
@@ -509,6 +512,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Manual Approval for Staging
+        id: approval
         uses: trstringer/manual-approval@v1
         with:
           secret: ${{ secrets.GITHUB_TOKEN }}
@@ -535,6 +539,69 @@ jobs:
             - (and other changed functions)
             
             **Note:** Lambda function names follow the pattern: `stg-{region}-lambda-{number}`
+
+      - name: Send Email Notification for Staging Approval
+        if: env.APPROVAL_EMAILS_STAGING != ''
+        run: |
+          echo "📧 Sending email notifications for staging approval..."
+          
+          # Get the issue URL (the approval action creates an issue)
+          ISSUE_URL="https://github.com/${{ github.repository }}/issues"
+          
+          # Get the latest issue number (approval issue)
+          ISSUE_NUMBER=$(gh issue list --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || echo "")
+          
+          if [ -n "$ISSUE_NUMBER" ]; then
+            ISSUE_URL="https://github.com/${{ github.repository }}/issues/${ISSUE_NUMBER}"
+          fi
+          
+          # Prepare email content
+          SUBJECT="🚀 Staging Deployment Approval Required - ${{ github.ref_name }}"
+          BODY="A staging deployment approval is required for commit ${{ github.sha }}.
+          
+          Branch: ${{ github.ref_name }}
+          Author: ${{ github.actor }}
+          Changed Functions: ${{ needs.detect-changes.outputs.folders }}
+          
+          Please review and approve the deployment:
+          ${ISSUE_URL}
+          
+          To approve: Comment '/approve' on the issue
+          To reject: Comment '/reject' on the issue
+          
+          Repository: ${{ github.repository }}
+          Workflow: ${{ github.workflow }}
+          Run ID: ${{ github.run_id }}"
+          
+          # Send emails using AWS SES (if configured) or other email service
+          if [ -n "${{ secrets.AWS_SES_REGION }}" ] && [ -n "${{ secrets.AWS_SES_FROM_EMAIL }}" ]; then
+            echo "Using AWS SES to send emails..."
+            # Configure AWS credentials for SES
+            export AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
+            export AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+            export AWS_DEFAULT_REGION="${{ secrets.AWS_SES_REGION }}"
+            
+            # Send email to each recipient
+            IFS=',' read -ra EMAILS <<< "${{ env.APPROVAL_EMAILS_STAGING }}"
+            for email in "${EMAILS[@]}"; do
+              email=$(echo "$email" | xargs)  # Trim whitespace
+              if [ -n "$email" ]; then
+                echo "Sending email to: $email"
+                aws ses send-email \
+                  --from "${{ secrets.AWS_SES_FROM_EMAIL }}" \
+                  --to "$email" \
+                  --subject "$SUBJECT" \
+                  --text "$BODY" 2>&1 || echo "⚠️ Failed to send email to $email"
+              fi
+            done
+          else
+            echo "⚠️ Email service not configured. Please set AWS_SES_REGION and AWS_SES_FROM_EMAIL secrets."
+            echo "📋 Approval Issue URL: ${ISSUE_URL}"
+            echo "📧 Recipients: ${{ env.APPROVAL_EMAILS_STAGING }}"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
 
   deploy-staging:
     needs: [determine-environment, detect-changes, build-and-push, approve-staging]
@@ -665,6 +732,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Manual Approval for Production
+        id: approval
         uses: trstringer/manual-approval@v1
         with:
           secret: ${{ secrets.GITHUB_TOKEN }}
@@ -693,6 +761,69 @@ jobs:
             - (and other changed functions)
             
             **Note:** Lambda function names follow the pattern: `prd-{region}-lambda-{number}`
+
+      - name: Send Email Notification for Production Approval
+        if: env.APPROVAL_EMAILS_PRODUCTION != ''
+        run: |
+          echo "📧 Sending email notifications for production approval..."
+          
+          # Get the issue URL (the approval action creates an issue)
+          ISSUE_URL="https://github.com/${{ github.repository }}/issues"
+          
+          # Get the latest issue number (approval issue)
+          ISSUE_NUMBER=$(gh issue list --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || echo "")
+          
+          if [ -n "$ISSUE_NUMBER" ]; then
+            ISSUE_URL="https://github.com/${{ github.repository }}/issues/${ISSUE_NUMBER}"
+          fi
+          
+          # Prepare email content
+          SUBJECT="🚀 PRODUCTION Deployment Approval Required - ${{ github.ref_name }}"
+          BODY="⚠️ URGENT: A PRODUCTION deployment approval is required for commit ${{ github.sha }}.
+          
+          Branch: ${{ github.ref_name }}
+          Author: ${{ github.actor }}
+          Changed Functions: ${{ needs.detect-changes.outputs.folders }}
+          
+          This is a PRODUCTION deployment. Please review carefully and approve:
+          ${ISSUE_URL}
+          
+          To approve: Comment '/approve' on the issue
+          To reject: Comment '/reject' on the issue
+          
+          Repository: ${{ github.repository }}
+          Workflow: ${{ github.workflow }}
+          Run ID: ${{ github.run_id }}"
+          
+          # Send emails using AWS SES (if configured) or other email service
+          if [ -n "${{ secrets.AWS_SES_REGION }}" ] && [ -n "${{ secrets.AWS_SES_FROM_EMAIL }}" ]; then
+            echo "Using AWS SES to send emails..."
+            # Configure AWS credentials for SES
+            export AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
+            export AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+            export AWS_DEFAULT_REGION="${{ secrets.AWS_SES_REGION }}"
+            
+            # Send email to each recipient
+            IFS=',' read -ra EMAILS <<< "${{ env.APPROVAL_EMAILS_PRODUCTION }}"
+            for email in "${EMAILS[@]}"; do
+              email=$(echo "$email" | xargs)  # Trim whitespace
+              if [ -n "$email" ]; then
+                echo "Sending email to: $email"
+                aws ses send-email \
+                  --from "${{ secrets.AWS_SES_FROM_EMAIL }}" \
+                  --to "$email" \
+                  --subject "$SUBJECT" \
+                  --text "$BODY" 2>&1 || echo "⚠️ Failed to send email to $email"
+              fi
+            done
+          else
+            echo "⚠️ Email service not configured. Please set AWS_SES_REGION and AWS_SES_FROM_EMAIL secrets."
+            echo "📋 Approval Issue URL: ${ISSUE_URL}"
+            echo "📧 Recipients: ${{ env.APPROVAL_EMAILS_PRODUCTION }}"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
 
   deploy-prod:
     needs: [determine-environment, detect-changes, build-and-push, approve-production]
