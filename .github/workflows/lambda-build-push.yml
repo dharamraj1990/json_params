@@ -814,3 +814,54 @@ jobs:
           
           echo "✅ Successfully deployed $LAMBDA_NAME to production"
 
+  merge-release-to-main:
+    needs: [determine-environment, deploy-prod]
+    # Only merge after successful production deployment on release branch
+    if: success() && needs.determine-environment.outputs.should-deploy-prod == 'true' && github.ref == 'refs/heads/release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge release to main
+        run: |
+          echo "🔄 Merging release branch to main after successful production deployment..."
+          
+          # Fetch all branches
+          git fetch origin
+          
+          # Checkout main branch
+          git checkout main
+          git pull origin main
+          
+          # Merge release into main
+          if git merge origin/release --no-edit; then
+            echo "✅ Successfully merged release into main"
+            
+            # Push to main
+            if git push origin main; then
+              echo "✅ Successfully pushed merged changes to main"
+            else
+              echo "❌ Failed to push to main"
+              exit 1
+            fi
+          else
+            echo "⚠️ Merge conflict or merge failed. Please merge manually."
+            echo "Release branch: release"
+            echo "Main branch: main"
+            exit 1
+          fi
+          
+          echo "🎉 Release branch successfully merged to main!"
+
