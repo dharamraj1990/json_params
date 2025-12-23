@@ -102,52 +102,54 @@ These should be applied to resources: `arn:aws:ecr:*:*:repository/lambda-functio
 
 Then update the workflow file to use access keys instead of IAM role.
 
-### 4. Set Up GitHub Environments for Approvals
+### 4. Manual Approval Setup (Works on Free GitHub Accounts)
 
-**IMPORTANT**: To enable manual approvals for staging and production, you must create GitHub Environments in your repository settings.
+**IMPORTANT**: The workflow uses manual approval via GitHub Issues, which works on **free GitHub accounts** (no Enterprise required).
 
-#### Steps to Create GitHub Environments:
+#### How Manual Approval Works:
 
-1. **Go to Repository Settings**:
-   - Navigate to your repository on GitHub
-   - Click **Settings** → **Environments**
+The workflow automatically creates GitHub Issues for staging and production deployments that require approval:
 
-2. **Create `staging` Environment**:
-   - Click **New environment**
-   - Name it: `staging`
-   - Under **Protection rules**, click **Add rule** → **Required reviewers**
-   - Add at least one reviewer (yourself or team members)
-   - Optionally, restrict to specific branches (e.g., `main` only)
-   - Click **Save protection rules**
+1. **Staging Deployment**:
+   - After images are built and pushed, an approval job runs
+   - A GitHub Issue is created with title: "🚀 Staging Deployment Approval Required"
+   - The workflow pauses and waits for approval
 
-3. **Create `production` Environment**:
-   - Click **New environment**
-   - Name it: `production`
-   - Under **Protection rules**, click **Add rule** → **Required reviewers**
-   - Add at least one reviewer (yourself or team members)
-   - Optionally, restrict to specific branches (e.g., `main` only)
-   - Consider adding a **Wait timer** for additional safety (e.g., 5 minutes)
-   - Click **Save protection rules**
+2. **Production Deployment**:
+   - After images are built and pushed, an approval job runs
+   - A GitHub Issue is created with title: "🚀 Production Deployment Approval Required"
+   - The workflow pauses and waits for approval
 
-4. **Create `dev` Environment (Optional)**:
-   - Click **New environment**
-   - Name it: `dev`
-   - **No protection rules needed** (automatic deployment)
-   - Click **Save protection rules**
+#### How to Approve or Reject:
 
-#### How It Works:
+When an approval issue is created:
+
+1. **Go to the Issues tab** in your repository
+2. **Find the approval issue** (it will be automatically created)
+3. **Comment on the issue**:
+   - Type `/approve` to approve the deployment
+   - Type `/reject` to reject the deployment
+4. **The workflow will automatically continue** once approved (or fail if rejected)
+
+#### Configuration:
+
+The approval is configured to use the person who triggered the workflow (`${{ github.actor }}`) as the approver. To change this:
+
+1. Edit `.github/workflows/lambda-build-push.yml`
+2. Find the `approve-staging` and `approve-production` jobs
+3. Update the `approvers` field with GitHub usernames (comma-separated):
+   ```yaml
+   approvers: username1,username2,username3
+   ```
+4. Adjust `minimum-approvals` if you need multiple approvals
+
+#### Deployment Flow:
 
 - **Dev Environment**: Deploys automatically (no approval needed)
-- **Staging Environment**: Workflow pauses and waits for manual approval from a required reviewer
-- **Production Environment**: Workflow pauses and waits for manual approval from a required reviewer
+- **Staging Environment**: Requires manual approval via GitHub Issue
+- **Production Environment**: Requires manual approval via GitHub Issue
 
-When a deployment job reaches staging or production:
-1. The workflow will pause and show a "Review deployments" button
-2. Required reviewers will receive a notification
-3. Reviewers can approve or reject the deployment
-4. Once approved, the deployment continues automatically
-
-**Note**: If you don't create these environments, the workflow will still run but **without approval requirements**.
+**Note**: This approach works on free GitHub accounts and doesn't require GitHub Enterprise or paid plans.
 
 ### 5. Configure Workflow Settings
 

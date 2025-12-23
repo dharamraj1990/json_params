@@ -329,20 +329,48 @@ jobs:
           
           echo "✅ Successfully deployed $LAMBDA_NAME to dev"
 
-  deploy-staging:
+  approve-staging:
     needs: [detect-changes, build-and-push]
-    # Deploy to staging only on main branch
+    # Approval required for staging only on main branch
+    if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Manual Approval for Staging
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ secrets.GITHUB_TOKEN }}
+          approvers: ${{ github.actor }}  # Approver is the person who triggered the workflow
+          minimum-approvals: 1
+          issue-title: "🚀 Staging Deployment Approval Required - ${{ github.sha }}"
+          issue-body: |
+            ## Staging Deployment Approval
+            
+            **Commit:** ${{ github.sha }}
+            **Author:** ${{ github.actor }}
+            **Branch:** ${{ github.ref_name }}
+            **Changed Functions:** ${{ needs.detect-changes.outputs.folders }}
+            
+            Please review and approve this staging deployment.
+            
+            **To approve:** Comment `/approve` on this issue
+            **To reject:** Comment `/reject` on this issue
+            
+            This deployment will update the following Lambda functions:
+            ${{ needs.detect-changes.outputs.folders }}
+
+  deploy-staging:
+    needs: [detect-changes, build-and-push, approve-staging]
+    # Deploy to staging only on main branch after approval
     if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         folder: ${{ fromJson(needs.detect-changes.outputs.folders-json) }}
       fail-fast: false
-    environment:
-      name: staging
-      # NOTE: To enable manual approval, create 'staging' environment in repository settings
-      # with required reviewers. Go to: Settings → Environments → New environment → staging
-      # Then add "Required reviewers" protection rule.
     permissions:
       id-token: write
       contents: read
@@ -424,20 +452,50 @@ jobs:
           
           echo "✅ Successfully deployed $LAMBDA_NAME to staging"
 
-  deploy-prod:
+  approve-production:
     needs: [detect-changes, build-and-push]
-    # Deploy to production only on main branch
+    # Approval required for production only on main branch
+    if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Manual Approval for Production
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ secrets.GITHUB_TOKEN }}
+          approvers: ${{ github.actor }}  # Approver is the person who triggered the workflow
+          minimum-approvals: 1
+          issue-title: "🚀 Production Deployment Approval Required - ${{ github.sha }}"
+          issue-body: |
+            ## Production Deployment Approval
+            
+            **⚠️ WARNING: This is a PRODUCTION deployment! ⚠️**
+            
+            **Commit:** ${{ github.sha }}
+            **Author:** ${{ github.actor }}
+            **Branch:** ${{ github.ref_name }}
+            **Changed Functions:** ${{ needs.detect-changes.outputs.folders }}
+            
+            Please carefully review and approve this production deployment.
+            
+            **To approve:** Comment `/approve` on this issue
+            **To reject:** Comment `/reject` on this issue
+            
+            This deployment will update the following Lambda functions in PRODUCTION:
+            ${{ needs.detect-changes.outputs.folders }}
+
+  deploy-prod:
+    needs: [detect-changes, build-and-push, approve-production]
+    # Deploy to production only on main branch after approval
     if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         folder: ${{ fromJson(needs.detect-changes.outputs.folders-json) }}
       fail-fast: false
-    environment:
-      name: production
-      # NOTE: To enable manual approval, create 'production' environment in repository settings
-      # with required reviewers. Go to: Settings → Environments → New environment → production
-      # Then add "Required reviewers" protection rule.
     permissions:
       id-token: write
       contents: read
