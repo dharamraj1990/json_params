@@ -536,23 +536,35 @@ jobs:
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           echo "Image URI: ${IMAGE_URI}"
 
-      - name: Deploy Lambda to Staging
+      - name: Determine Lambda Function Name
+        id: lambda-name
         run: |
           # Extract number from folder name (e.g., lambda-function-1 -> 1)
           FOLDER_NAME="${{ matrix.folder }}"
           LAMBDA_NUMBER=$(echo "$FOLDER_NAME" | sed 's/lambda-function-//')
           
-          # Convert region from us-east-1 to us-east (remove -1 suffix)
-          REGION_SHORT=$(echo "${{ env.AWS_REGION }}" | sed 's/-[0-9]*$//')
+          # Use full region name (e.g., us-east-1)
+          REGION_FULL="${{ env.AWS_REGION }}"
           
-          # Construct Lambda function name: stg-us-east-lambda-1
-          LAMBDA_NAME="stg-${REGION_SHORT}-lambda-${LAMBDA_NUMBER}"
+          # Construct Lambda function name: stg-us-east-1-lambda-1
+          LAMBDA_NAME="stg-${REGION_FULL}-lambda-${LAMBDA_NUMBER}"
+          
+          echo "lambda-name=${LAMBDA_NAME}" >> $GITHUB_OUTPUT
+          echo "folder-name=${FOLDER_NAME}" >> $GITHUB_OUTPUT
+          echo "lambda-number=${LAMBDA_NUMBER}" >> $GITHUB_OUTPUT
+          
+          echo "📦 Folder: $FOLDER_NAME"
+          echo "🔢 Lambda Number: $LAMBDA_NUMBER"
+          echo "🌍 Region: ${{ env.AWS_REGION }}"
+          echo "🏷️  Actual Lambda Function Name: $LAMBDA_NAME"
+          echo "💳 AWS Account: ${{ env.AWS_ACCOUNT_STAGING }}"
+
+      - name: Deploy ${{ steps.lambda-name.outputs.lambda-name }} to Staging
+        run: |
+          LAMBDA_NAME="${{ steps.lambda-name.outputs.lambda-name }}"
           IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
           
-          echo "Folder: $FOLDER_NAME"
-          echo "Lambda Number: $LAMBDA_NUMBER"
-          echo "Region: ${{ env.AWS_REGION }}"
-          echo "Deploying $LAMBDA_NAME to staging environment..."
+          echo "🚀 Deploying $LAMBDA_NAME to staging environment..."
           
           # Wait for any in-progress updates to complete
           echo "Checking for in-progress updates..."
