@@ -19,12 +19,12 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'headers': {
             'Content-Type': 'application/json',
-            'X-Function-Version': '3.2.3'
+            'X-Function-Version': '3.3.0'
         },
         'body': json.dumps({
             'message': 'Hello from Lambda!',
             'function': 'lambda-function-2',
-            'version': '3.2.3',
+            'version': '3.3.0',
             'timestamp': datetime.utcnow().isoformat(),
             'deployment': 'automated',
             'build_date': datetime.utcnow().isoformat(),
@@ -39,6 +39,7 @@ def lambda_handler(event, context):
             'approval_method': 'github-issues',
             'approval_working': True,
             'branching_strategy': 'develop-release-only',
+            'ecr_repo': 'dev-us-east-1-repo',
             'event': event
         })
     }
