@@ -360,14 +360,52 @@ jobs:
           echo "Folder: $FOLDER_NAME"
           echo "Lambda Number: $LAMBDA_NUMBER"
           echo "Region: ${{ env.AWS_REGION }} -> $REGION_SHORT"
+          echo "Constructed Lambda Name: $LAMBDA_NAME"
+          echo "AWS Account: ${{ env.AWS_ACCOUNT_DEV }}"
           echo "Deploying $LAMBDA_NAME to dev environment..."
+          
+          # List available Lambda functions for debugging
+          echo "📋 Listing available Lambda functions in region ${{ env.AWS_REGION }}..."
+          aws lambda list-functions \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Functions[].FunctionName' \
+            --output table || echo "⚠️ Could not list functions (may be a permissions issue)"
+          
+          # Check if function exists
+          echo "🔍 Checking if function $LAMBDA_NAME exists..."
+          FUNCTION_EXISTS=$(aws lambda get-function \
+            --function-name "$LAMBDA_NAME" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Configuration.FunctionName' \
+            --output text 2>/dev/null || echo "")
+          
+          if [ -z "$FUNCTION_EXISTS" ]; then
+            echo "❌ ERROR: Function $LAMBDA_NAME not found!"
+            echo "📋 Available functions matching pattern:"
+            aws lambda list-functions \
+              --region ${{ env.AWS_REGION }} \
+              --query "Functions[?contains(FunctionName, 'dev') || contains(FunctionName, 'lambda') || contains(FunctionName, '$LAMBDA_NUMBER')].FunctionName" \
+              --output table || echo "Could not list functions"
+            echo ""
+            echo "💡 Possible issues:"
+            echo "   1. Function name doesn't match expected pattern: $LAMBDA_NAME"
+            echo "   2. Function exists in a different AWS account"
+            echo "   3. Function exists in a different region"
+            echo "   4. OIDC role doesn't have permissions to access the function"
+            exit 1
+          fi
+          
+          echo "✅ Function found: $FUNCTION_EXISTS"
           
           # Wait for any in-progress updates to complete
           echo "Checking for in-progress updates..."
           MAX_WAIT=300  # 5 minutes max wait
           WAIT_TIME=0
           while [ $WAIT_TIME -lt $MAX_WAIT ]; do
-            STATE=$(aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} --query 'Configuration.State' --output text 2>/dev/null || echo "Active")
+            STATE=$(aws lambda get-function-configuration \
+              --function-name "$LAMBDA_NAME" \
+              --region ${{ env.AWS_REGION }} \
+              --query 'State' --output text 2>/dev/null || echo "Active")
             if [ "$STATE" == "Active" ] || [ "$STATE" == "Inactive" ]; then
               echo "Function is ready for update (State: $STATE)"
               break
@@ -391,6 +429,11 @@ jobs:
               echo "Update initiated successfully"
               break
             else
+              ERROR_OUTPUT=$(aws lambda update-function-code \
+                --function-name "$LAMBDA_NAME" \
+                --image-uri "$IMAGE_URI" \
+                --region ${{ env.AWS_REGION }} 2>&1 || true)
+              echo "Error details: $ERROR_OUTPUT"
               RETRY_COUNT=$((RETRY_COUNT + 1))
               if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                 echo "Update failed, retrying in 15 seconds... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
