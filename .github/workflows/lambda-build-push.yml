@@ -5,12 +5,18 @@ on:
     branches:
       - main
       - develop
+      - staging
+      - release/**
+      - hotfix/**
+      - feature/**
+      - feat/**
     paths:
       - 'lambda-functions/**'
   pull_request:
     branches:
       - main
       - develop
+      - staging
     paths:
       - 'lambda-functions/**'
 
@@ -24,7 +30,97 @@ env:
   OIDC_ROLE_NAME: oidc-github-action  # IAM role name for OIDC authentication
 
 jobs:
+  determine-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      should-deploy-dev: ${{ steps.env.outputs.should-deploy-dev }}
+      should-deploy-staging: ${{ steps.env.outputs.should-deploy-staging }}
+      should-deploy-prod: ${{ steps.env.outputs.should-deploy-prod }}
+      branch-type: ${{ steps.env.outputs.branch-type }}
+    steps:
+      - name: Determine environment from branch
+        id: env
+        run: |
+          BRANCH_NAME="${{ github.ref_name }}"
+          BRANCH_REF="${{ github.ref }}"
+          IS_PR="${{ github.event_name == 'pull_request' }}"
+          
+          echo "Branch: $BRANCH_NAME"
+          echo "Ref: $BRANCH_REF"
+          echo "Is PR: $IS_PR"
+          
+          # Initialize defaults
+          ENVIRONMENT="none"
+          DEPLOY_DEV="false"
+          DEPLOY_STAGING="false"
+          DEPLOY_PROD="false"
+          BRANCH_TYPE="unknown"
+          
+          # Pull requests: Build only, no deployment
+          if [ "$IS_PR" == "true" ]; then
+            ENVIRONMENT="pr"
+            BRANCH_TYPE="pull_request"
+            echo "🔍 Pull Request detected - Build only, no deployment"
+          
+          # Main branch: Production deployment (with approval)
+          elif [ "$BRANCH_REF" == "refs/heads/main" ] || [ "$BRANCH_REF" == "refs/heads/master" ]; then
+            ENVIRONMENT="production"
+            DEPLOY_PROD="true"
+            BRANCH_TYPE="main"
+            echo "🚀 Main branch detected - Production deployment"
+          
+          # Staging/Release branches: Staging deployment (with approval)
+          elif [[ "$BRANCH_NAME" == "staging" ]] || [[ "$BRANCH_NAME" =~ ^release/ ]] || [[ "$BRANCH_NAME" =~ ^release- ]]; then
+            ENVIRONMENT="staging"
+            DEPLOY_STAGING="true"
+            BRANCH_TYPE="staging"
+            echo "🧪 Staging/Release branch detected - Staging deployment"
+          
+          # Develop branch: Dev deployment (automatic)
+          elif [ "$BRANCH_REF" == "refs/heads/develop" ] || [ "$BRANCH_REF" == "refs/heads/dev" ]; then
+            ENVIRONMENT="dev"
+            DEPLOY_DEV="true"
+            BRANCH_TYPE="develop"
+            echo "💻 Develop branch detected - Dev deployment"
+          
+          # Hotfix branches: Can deploy to all environments (based on branch name pattern)
+          elif [[ "$BRANCH_NAME" =~ ^hotfix/ ]] || [[ "$BRANCH_NAME" =~ ^hotfix- ]]; then
+            ENVIRONMENT="hotfix"
+            DEPLOY_DEV="true"
+            DEPLOY_STAGING="true"
+            DEPLOY_PROD="true"
+            BRANCH_TYPE="hotfix"
+            echo "🔥 Hotfix branch detected - Can deploy to all environments"
+          
+          # Feature branches: Build only, no deployment (unless explicitly configured)
+          elif [[ "$BRANCH_NAME" =~ ^feature/ ]] || [[ "$BRANCH_NAME" =~ ^feat/ ]] || [[ "$BRANCH_NAME" =~ ^feature- ]] || [[ "$BRANCH_NAME" =~ ^feat- ]]; then
+            ENVIRONMENT="feature"
+            BRANCH_TYPE="feature"
+            echo "✨ Feature branch detected - Build only, no deployment"
+          
+          # Unknown branch: Build only
+          else
+            ENVIRONMENT="unknown"
+            BRANCH_TYPE="other"
+            echo "❓ Unknown branch type - Build only, no deployment"
+          fi
+          
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+          echo "should-deploy-dev=$DEPLOY_DEV" >> $GITHUB_OUTPUT
+          echo "should-deploy-staging=$DEPLOY_STAGING" >> $GITHUB_OUTPUT
+          echo "should-deploy-prod=$DEPLOY_PROD" >> $GITHUB_OUTPUT
+          echo "branch-type=$BRANCH_TYPE" >> $GITHUB_OUTPUT
+          
+          echo "📊 Deployment Summary:"
+          echo "  Environment: $ENVIRONMENT"
+          echo "  Deploy to Dev: $DEPLOY_DEV"
+          echo "  Deploy to Staging: $DEPLOY_STAGING"
+          echo "  Deploy to Production: $DEPLOY_PROD"
+          echo "  Branch Type: $BRANCH_TYPE"
+
   detect-changes:
+    needs: determine-environment
     runs-on: ubuntu-latest
     outputs:
       folders: ${{ steps.changes.outputs.folders }}
@@ -153,7 +249,8 @@ jobs:
           fi
 
   build-and-push:
-    needs: detect-changes
+    needs: [determine-environment, detect-changes]
+    # Build on all branches (including PRs and feature branches)
     if: needs.detect-changes.outputs.folders != '' && needs.detect-changes.outputs.folders-json != '' && needs.detect-changes.outputs.folders-json != '[]'
     runs-on: ubuntu-latest
     strategy:
@@ -238,9 +335,9 @@ jobs:
           echo "Image URI: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
 
   deploy-dev:
-    needs: [detect-changes, build-and-push]
-    # Deploy to dev on develop branch or main branch
-    if: success() && needs.detect-changes.outputs.folders != '' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
+    needs: [determine-environment, detect-changes, build-and-push]
+    # Deploy to dev based on branch strategy
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-dev == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -341,9 +438,9 @@ jobs:
           echo "✅ Successfully deployed $LAMBDA_NAME to dev"
 
   approve-staging:
-    needs: [detect-changes, build-and-push]
-    # Approval required for staging only on main branch
-    if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
+    needs: [determine-environment, detect-changes, build-and-push]
+    # Approval required for staging based on branch strategy
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-staging == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -362,7 +459,8 @@ jobs:
             
             **Commit:** ${{ github.sha }}
             **Author:** ${{ github.actor }}
-            **Branch:** ${{ github.ref_name }}
+            **Branch:** ${{ github.ref_name }} (${{ needs.determine-environment.outputs.branch-type }})
+            **Environment:** ${{ needs.determine-environment.outputs.environment }}
             **Changed Folders:** ${{ needs.detect-changes.outputs.folders }}
             
             Please review and approve this staging deployment.
@@ -378,9 +476,9 @@ jobs:
             **Note:** Lambda function names follow the pattern: `stg-{region}-lambda-{number}`
 
   deploy-staging:
-    needs: [detect-changes, build-and-push, approve-staging]
-    # Deploy to staging only on main branch after approval
-    if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
+    needs: [determine-environment, detect-changes, build-and-push, approve-staging]
+    # Deploy to staging based on branch strategy after approval
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-staging == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -479,9 +577,9 @@ jobs:
           echo "✅ Successfully deployed $LAMBDA_NAME to staging"
 
   approve-production:
-    needs: [detect-changes, build-and-push]
-    # Approval required for production only on main branch
-    if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
+    needs: [determine-environment, detect-changes, build-and-push]
+    # Approval required for production based on branch strategy
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -502,7 +600,8 @@ jobs:
             
             **Commit:** ${{ github.sha }}
             **Author:** ${{ github.actor }}
-            **Branch:** ${{ github.ref_name }}
+            **Branch:** ${{ github.ref_name }} (${{ needs.determine-environment.outputs.branch-type }})
+            **Environment:** ${{ needs.determine-environment.outputs.environment }}
             **Changed Folders:** ${{ needs.detect-changes.outputs.folders }}
             
             Please carefully review and approve this production deployment.
@@ -518,9 +617,9 @@ jobs:
             **Note:** Lambda function names follow the pattern: `prd-{region}-lambda-{number}`
 
   deploy-prod:
-    needs: [detect-changes, build-and-push, approve-production]
-    # Deploy to production only on main branch after approval
-    if: success() && needs.detect-changes.outputs.folders != '' && github.ref == 'refs/heads/main'
+    needs: [determine-environment, detect-changes, build-and-push, approve-production]
+    # Deploy to production based on branch strategy after approval
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
