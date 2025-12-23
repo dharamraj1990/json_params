@@ -344,7 +344,8 @@ jobs:
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           echo "Image URI: ${IMAGE_URI}"
 
-      - name: Deploy Lambda to Dev
+      - name: Determine Lambda Function Name
+        id: lambda-name
         run: |
           # Extract number from folder name (e.g., lambda-function-1 -> 1)
           FOLDER_NAME="${{ matrix.folder }}"
@@ -355,14 +356,23 @@ jobs:
           
           # Construct Lambda function name: dev-us-east-1-lambda-1
           LAMBDA_NAME="dev-${REGION_FULL}-lambda-${LAMBDA_NUMBER}"
+          
+          echo "lambda-name=${LAMBDA_NAME}" >> $GITHUB_OUTPUT
+          echo "folder-name=${FOLDER_NAME}" >> $GITHUB_OUTPUT
+          echo "lambda-number=${LAMBDA_NUMBER}" >> $GITHUB_OUTPUT
+          
+          echo "📦 Folder: $FOLDER_NAME"
+          echo "🔢 Lambda Number: $LAMBDA_NUMBER"
+          echo "🌍 Region: ${{ env.AWS_REGION }}"
+          echo "🏷️  Actual Lambda Function Name: $LAMBDA_NAME"
+          echo "💳 AWS Account: ${{ env.AWS_ACCOUNT_DEV }}"
+
+      - name: Deploy ${{ steps.lambda-name.outputs.lambda-name }} to Dev
+        run: |
+          LAMBDA_NAME="${{ steps.lambda-name.outputs.lambda-name }}"
           IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
           
-          echo "Folder: $FOLDER_NAME"
-          echo "Lambda Number: $LAMBDA_NUMBER"
-          echo "Region: ${{ env.AWS_REGION }}"
-          echo "Constructed Lambda Name: $LAMBDA_NAME"
-          echo "AWS Account: ${{ env.AWS_ACCOUNT_DEV }}"
-          echo "Deploying $LAMBDA_NAME to dev environment..."
+          echo "🚀 Deploying $LAMBDA_NAME to dev environment..."
           
           # List available Lambda functions for debugging
           echo "📋 Listing available Lambda functions in region ${{ env.AWS_REGION }}..."
@@ -667,7 +677,8 @@ jobs:
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           echo "Image URI: ${IMAGE_URI}"
 
-      - name: Deploy Lambda to Production
+      - name: Determine Lambda Function Name
+        id: lambda-name
         run: |
           # Extract number from folder name (e.g., lambda-function-1 -> 1)
           FOLDER_NAME="${{ matrix.folder }}"
@@ -678,12 +689,23 @@ jobs:
           
           # Construct Lambda function name: prd-us-east-1-lambda-1
           LAMBDA_NAME="prd-${REGION_FULL}-lambda-${LAMBDA_NUMBER}"
+          
+          echo "lambda-name=${LAMBDA_NAME}" >> $GITHUB_OUTPUT
+          echo "folder-name=${FOLDER_NAME}" >> $GITHUB_OUTPUT
+          echo "lambda-number=${LAMBDA_NUMBER}" >> $GITHUB_OUTPUT
+          
+          echo "📦 Folder: $FOLDER_NAME"
+          echo "🔢 Lambda Number: $LAMBDA_NUMBER"
+          echo "🌍 Region: ${{ env.AWS_REGION }}"
+          echo "🏷️  Actual Lambda Function Name: $LAMBDA_NAME"
+          echo "💳 AWS Account: ${{ env.AWS_ACCOUNT_PROD }}"
+
+      - name: Deploy ${{ steps.lambda-name.outputs.lambda-name }} to Production
+        run: |
+          LAMBDA_NAME="${{ steps.lambda-name.outputs.lambda-name }}"
           IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
           
-          echo "Folder: $FOLDER_NAME"
-          echo "Lambda Number: $LAMBDA_NUMBER"
-          echo "Region: ${{ env.AWS_REGION }}"
-          echo "Deploying $LAMBDA_NAME to production environment..."
+          echo "🚀 Deploying $LAMBDA_NAME to production environment..."
           
           # Wait for any in-progress updates to complete
           echo "Checking for in-progress updates..."
