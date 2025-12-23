@@ -16,7 +16,10 @@ on:
 
 env:
   AWS_REGION: us-east-1  # Change to your AWS region
-  ECR_REPOSITORY: lambda-function-1-repo  # Single ECR repository for all Lambda functions
+  # ECR Repository Names for each environment
+  ECR_REPOSITORY_DEV: dev-us-east-1-repo
+  ECR_REPOSITORY_STAGING: stg-us-east-1-repo
+  ECR_REPOSITORY_PROD: prd-us-east-1-repo
   # AWS Account Numbers for each environment (can be overridden via secrets)
   AWS_ACCOUNT_DEV: ${{ secrets.AWS_ACCOUNT_DEV || '533269020590' }}
   AWS_ACCOUNT_STAGING: ${{ secrets.AWS_ACCOUNT_STAGING || '533269020590' }}
@@ -248,17 +251,30 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set ECR repository and image tags
+      - name: Determine ECR Repository
         id: ecr-config
         run: |
-          # Use single ECR repository for all Lambda functions
-          ECR_REPO="${{ env.ECR_REPOSITORY }}"
+          # Determine which ECR repository to use based on branch/environment
+          BRANCH_REF="${{ github.ref }}"
+          ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
           
-          # Image will be tagged with Lambda function name
-          # Format: <ecr-repo>:<lambda-function-name>-<commit-sha>
-          # Example: lambda-functions-repo:lambda-function-1-abc123
+          if [ "$ENVIRONMENT" == "dev" ] || [ "$BRANCH_REF" == "refs/heads/develop" ]; then
+            ECR_REPO="${{ env.ECR_REPOSITORY_DEV }}"
+            echo "Using Dev ECR repository"
+          elif [ "$ENVIRONMENT" == "release" ] || [ "$BRANCH_REF" == "refs/heads/release" ]; then
+            # For release branch, push to both staging and production repos
+            # We'll push to staging first, then production can pull from staging if needed
+            ECR_REPO="${{ env.ECR_REPOSITORY_STAGING }}"
+            echo "Using Staging ECR repository (release branch)"
+          else
+            # Default to dev for PRs and other branches
+            ECR_REPO="${{ env.ECR_REPOSITORY_DEV }}"
+            echo "Using Dev ECR repository (default)"
+          fi
+          
           LAMBDA_NAME="${{ matrix.folder }}"
           
+          echo "Environment: $ENVIRONMENT"
           echo "ECR Repository: $ECR_REPO"
           echo "Lambda Function: $LAMBDA_NAME"
           echo "ecr-repo=$ECR_REPO" >> $GITHUB_OUTPUT
@@ -340,7 +356,7 @@ jobs:
         id: image-uri
         run: |
           IMAGE_TAG="${{ matrix.folder }}-${{ github.sha }}"
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DEV }}:${IMAGE_TAG}"
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           echo "Image URI: ${IMAGE_URI}"
 
@@ -532,8 +548,10 @@ jobs:
         id: image-uri
         run: |
           IMAGE_TAG="${{ matrix.folder }}-${{ github.sha }}"
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_STAGING }}:${IMAGE_TAG}"
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "ECR Repository: ${{ env.ECR_REPOSITORY_STAGING }}"
+          echo "Image Tag: ${IMAGE_TAG}"
           echo "Image URI: ${IMAGE_URI}"
 
       - name: Determine Lambda Function Name
@@ -685,8 +703,10 @@ jobs:
         id: image-uri
         run: |
           IMAGE_TAG="${{ matrix.folder }}-${{ github.sha }}"
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${IMAGE_TAG}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PROD }}:${IMAGE_TAG}"
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "ECR Repository: ${{ env.ECR_REPOSITORY_PROD }}"
+          echo "Image Tag: ${IMAGE_TAG}"
           echo "Image URI: ${IMAGE_URI}"
 
       - name: Determine Lambda Function Name
