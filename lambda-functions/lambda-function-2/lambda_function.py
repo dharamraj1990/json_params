@@ -19,12 +19,12 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'headers': {
             'Content-Type': 'application/json',
-            'X-Function-Version': '2.9.0'
+            'X-Function-Version': '3.0.0'
         },
         'body': json.dumps({
             'message': 'Hello from Lambda!',
             'function': 'lambda-function-2',
-            'version': '2.9.0',
+            'version': '3.0.0',
             'timestamp': datetime.utcnow().isoformat(),
             'deployment': 'automated',
             'build_date': datetime.utcnow().isoformat(),
@@ -34,6 +34,8 @@ def lambda_handler(event, context):
             'workflow_tested': True,
             'native_environment_protection': True,
             'ci_cd_pipeline': 'github-actions',
+            'deployment_status': 'success',
+            'build_number': 'latest',
             'event': event
         })
     }
