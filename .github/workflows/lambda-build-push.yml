@@ -724,14 +724,16 @@ jobs:
       - name: Get image URI
         id: image-uri
         run: |
-          # Use actual Lambda function name for image tag
-          ACTUAL_LAMBDA_NAME="prd-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
-          IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PROD }}:${IMAGE_TAG}"
+          # For production, use staging ECR repo (images are pushed to staging on release branch)
+          # Use actual Lambda function name for image tag (stg prefix since image is in staging repo)
+          ACTUAL_LAMBDA_NAME_STG="stg-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
+          ACTUAL_LAMBDA_NAME_PRD="prd-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
+          IMAGE_TAG="${ACTUAL_LAMBDA_NAME_STG}-${{ github.sha }}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_STAGING }}:${IMAGE_TAG}"
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
-          echo "ECR Repository: ${{ env.ECR_REPOSITORY_PROD }}"
-          echo "Image Tag: ${IMAGE_TAG}"
+          echo "Production Lambda Function: ${ACTUAL_LAMBDA_NAME_PRD}"
+          echo "Image from Staging ECR Repository: ${{ env.ECR_REPOSITORY_STAGING }}"
+          echo "Image Tag (staging): ${IMAGE_TAG}"
           echo "Image URI: ${IMAGE_URI}"
 
       - name: Determine Lambda Function Name
