@@ -19,12 +19,12 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'headers': {
             'Content-Type': 'application/json',
-            'X-Function-Version': '3.4.0'
+            'X-Function-Version': '3.5.0'
         },
         'body': json.dumps({
             'message': 'Hello from Lambda!',
             'function': 'lambda-function-2',
-            'version': '3.4.0',
+            'version': '3.5.0',
             'timestamp': datetime.utcnow().isoformat(),
             'deployment': 'automated',
             'build_date': datetime.utcnow().isoformat(),
@@ -41,6 +41,7 @@ def lambda_handler(event, context):
             'branching_strategy': 'develop-release-only',
             'ecr_repo': 'stg-us-east-1-repo',
             'deployment_target': 'staging-and-production',
+            'email_notifications': True,
             'event': event
         })
     }

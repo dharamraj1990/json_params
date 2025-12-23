@@ -32,7 +32,7 @@ def lambda_handler(event, context):
     response_data = {
         'message': 'Hello from Lambda!',
         'function': 'lambda-function-1',
-        'version': '2.6.0',
+        'version': '2.7.0',
         'timestamp': timestamp,
         'event_type': event_type,
         'environment': env_vars,
@@ -53,7 +53,8 @@ def lambda_handler(event, context):
         'approval_working': True,
         'branching_strategy': 'develop-release-only',
         'ecr_repo': 'stg-us-east-1-repo',
-        'deployment_target': 'staging-and-production'
+        'deployment_target': 'staging-and-production',
+        'email_notifications': True
     }
     
     response = {
