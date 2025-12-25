@@ -707,57 +707,73 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Load Lambda Configuration for Deployment
+        id: lambda-config
+        run: |
+          MAP_FILE="${{ env.MAP_FILE }}"
+          FOLDER_NAME="${{ matrix.folder }}"
+          ENVIRONMENT="staging"
+          AWS_REGION="${{ needs.determine-environment.outputs.aws-region }}"
+          COMMIT_SHA="${{ github.sha }}"
+          
+          # Load function config
+          FUNCTION=$(jq -r ".lambda_functions[] | select(.folder_name == \"$FOLDER_NAME\")" "$MAP_FILE")
+          FUNCTION_NUMBER=$(echo "$FUNCTION" | jq -r '.function_number')
+          ECR_REF=$(echo "$FUNCTION" | jq -r ".ecr_repository_ref.$ENVIRONMENT")
+          
+          # Load environment config
+          ENV_CONFIG=$(jq -r ".aws_base_config.environments.$ENVIRONMENT" "$MAP_FILE")
+          ACCOUNT_ID=$(echo "$ENV_CONFIG" | jq -r '.account_id')
+          ENV_PREFIX=$(echo "$ENV_CONFIG" | jq -r '.env_prefix')
+          
+          # Get ECR repository name
+          ECR_REPO_NAME=$(jq -r ".ecr_config.repositories.$ECR_REF.name" "$MAP_FILE")
+          
+          # Construct OIDC ARN
+          OIDC_ROLE_NAME=$(jq -r '.oidc_config.role_name' "$MAP_FILE")
+          OIDC_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${OIDC_ROLE_NAME}"
+          
+          # Construct Lambda name and ARN
+          LAMBDA_NAME="${ENV_PREFIX}-${AWS_REGION}-lambda-${FUNCTION_NUMBER}"
+          LAMBDA_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:${LAMBDA_NAME}"
+          
+          # Construct ECR URI and image tag
+          ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+          IMAGE_TAG="${LAMBDA_NAME}-${COMMIT_SHA}"
+          IMAGE_URI="${ECR_URI}:${IMAGE_TAG}"
+          
+          echo "oidc-arn=$OIDC_ARN" >> $GITHUB_OUTPUT
+          echo "lambda-name=$LAMBDA_NAME" >> $GITHUB_OUTPUT
+          echo "lambda-arn=$LAMBDA_ARN" >> $GITHUB_OUTPUT
+          echo "ecr-uri=$ECR_URI" >> $GITHUB_OUTPUT
+          echo "image-uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "account-id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+          
+          echo "✅ Deployment Configuration:"
+          echo "  Lambda Name: $LAMBDA_NAME"
+          echo "  Lambda ARN: $LAMBDA_ARN"
+          echo "  Image URI: $IMAGE_URI"
+          echo "  Account ID: $ACCOUNT_ID"
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_STAGING }}:role/${{ env.OIDC_ROLE_NAME }}
+          role-to-assume: ${{ steps.lambda-config.outputs.oidc-arn }}
           role-session-name: GitHubActions-Staging-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ needs.determine-environment.outputs.aws-region }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Get image URI
-        id: image-uri
+      - name: Deploy ${{ steps.lambda-config.outputs.lambda-name }} to Staging
         run: |
-          # Use actual Lambda function name for image tag
-          ACTUAL_LAMBDA_NAME="stg-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
-          IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_STAGING }}:${IMAGE_TAG}"
-          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
-          echo "ECR Repository: ${{ env.ECR_REPOSITORY_STAGING }}"
-          echo "Image Tag: ${IMAGE_TAG}"
-          echo "Image URI: ${IMAGE_URI}"
-
-      - name: Determine Lambda Function Name
-        id: lambda-name
-        run: |
-          # Extract number from folder name (e.g., lambda-function-1 -> 1)
-          FOLDER_NAME="${{ matrix.folder }}"
-          LAMBDA_NUMBER=$(echo "$FOLDER_NAME" | sed 's/lambda-function-//')
-          
-          # Use full region name (e.g., us-east-1)
-          REGION_FULL="${{ env.AWS_REGION }}"
-          
-          # Construct Lambda function name: stg-us-east-1-lambda-1
-          LAMBDA_NAME="stg-${REGION_FULL}-lambda-${LAMBDA_NUMBER}"
-          
-          echo "lambda-name=${LAMBDA_NAME}" >> $GITHUB_OUTPUT
-          echo "folder-name=${FOLDER_NAME}" >> $GITHUB_OUTPUT
-          echo "lambda-number=${LAMBDA_NUMBER}" >> $GITHUB_OUTPUT
-          
-          echo "📦 Folder: $FOLDER_NAME"
-          echo "🔢 Lambda Number: $LAMBDA_NUMBER"
-          echo "🌍 Region: ${{ env.AWS_REGION }}"
-          echo "🏷️  Actual Lambda Function Name: $LAMBDA_NAME"
-          echo "💳 AWS Account: ${{ env.AWS_ACCOUNT_STAGING }}"
-
-      - name: Deploy ${{ steps.lambda-name.outputs.lambda-name }} to Staging
-        run: |
-          LAMBDA_NAME="${{ steps.lambda-name.outputs.lambda-name }}"
-          IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
+          LAMBDA_NAME="${{ steps.lambda-config.outputs.lambda-name }}"
+          IMAGE_URI="${{ steps.lambda-config.outputs.image-uri }}"
+          AWS_REGION="${{ needs.determine-environment.outputs.aws-region }}"
           
           echo "🚀 Deploying $LAMBDA_NAME to staging environment..."
           
@@ -766,7 +782,10 @@ jobs:
           MAX_WAIT=300  # 5 minutes max wait
           WAIT_TIME=0
           while [ $WAIT_TIME -lt $MAX_WAIT ]; do
-            STATE=$(aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} --query 'Configuration.State' --output text 2>/dev/null || echo "Active")
+            STATE=$(aws lambda get-function-configuration \
+              --function-name "$LAMBDA_NAME" \
+              --region "$AWS_REGION" \
+              --query 'State' --output text 2>/dev/null || echo "Active")
             if [ "$STATE" == "Active" ] || [ "$STATE" == "Inactive" ]; then
               echo "Function is ready for update (State: $STATE)"
               break
@@ -786,10 +805,15 @@ jobs:
             if aws lambda update-function-code \
               --function-name "$LAMBDA_NAME" \
               --image-uri "$IMAGE_URI" \
-              --region ${{ env.AWS_REGION }} 2>&1; then
+              --region "$AWS_REGION" 2>&1; then
               echo "Update initiated successfully"
               break
             else
+              ERROR_OUTPUT=$(aws lambda update-function-code \
+                --function-name "$LAMBDA_NAME" \
+                --image-uri "$IMAGE_URI" \
+                --region "$AWS_REGION" 2>&1 || true)
+              echo "Error details: $ERROR_OUTPUT"
               RETRY_COUNT=$((RETRY_COUNT + 1))
               if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                 echo "Update failed, retrying in 15 seconds... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
@@ -805,7 +829,7 @@ jobs:
           echo "Waiting for update to complete..."
           aws lambda wait function-updated \
             --function-name "$LAMBDA_NAME" \
-            --region ${{ env.AWS_REGION }}
+            --region "$AWS_REGION"
           
           echo "✅ Successfully deployed $LAMBDA_NAME to staging"
 
@@ -944,59 +968,79 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Load Lambda Configuration for Deployment
+        id: lambda-config
+        run: |
+          MAP_FILE="${{ env.MAP_FILE }}"
+          FOLDER_NAME="${{ matrix.folder }}"
+          ENVIRONMENT="prod"
+          AWS_REGION="${{ needs.determine-environment.outputs.aws-region }}"
+          COMMIT_SHA="${{ github.sha }}"
+          
+          # Load function config
+          FUNCTION=$(jq -r ".lambda_functions[] | select(.folder_name == \"$FOLDER_NAME\")" "$MAP_FILE")
+          FUNCTION_NUMBER=$(echo "$FUNCTION" | jq -r '.function_number')
+          ECR_REF=$(echo "$FUNCTION" | jq -r ".ecr_repository_ref.$ENVIRONMENT")
+          
+          # Load environment config
+          ENV_CONFIG=$(jq -r ".aws_base_config.environments.$ENVIRONMENT" "$MAP_FILE")
+          ACCOUNT_ID=$(echo "$ENV_CONFIG" | jq -r '.account_id')
+          ENV_PREFIX=$(echo "$ENV_CONFIG" | jq -r '.env_prefix')
+          
+          # Get ECR repository name (prod uses staging repo)
+          ECR_REF_STAGING=$(echo "$FUNCTION" | jq -r ".ecr_repository_ref.staging")
+          ECR_REPO_NAME=$(jq -r ".ecr_config.repositories.$ECR_REF_STAGING.name" "$MAP_FILE")
+          
+          # Construct OIDC ARN
+          OIDC_ROLE_NAME=$(jq -r '.oidc_config.role_name' "$MAP_FILE")
+          OIDC_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${OIDC_ROLE_NAME}"
+          
+          # Construct Lambda name and ARN (prod uses prd prefix)
+          LAMBDA_NAME="${ENV_PREFIX}-${AWS_REGION}-lambda-${FUNCTION_NUMBER}"
+          LAMBDA_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:${LAMBDA_NAME}"
+          
+          # For production, image is in staging repo with staging tag
+          STAGING_ENV_CONFIG=$(jq -r ".aws_base_config.environments.staging" "$MAP_FILE")
+          STAGING_ENV_PREFIX=$(echo "$STAGING_ENV_CONFIG" | jq -r '.env_prefix')
+          STAGING_LAMBDA_NAME="${STAGING_ENV_PREFIX}-${AWS_REGION}-lambda-${FUNCTION_NUMBER}"
+          
+          # Construct ECR URI and image tag (using staging tag since image is in staging repo)
+          ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+          IMAGE_TAG="${STAGING_LAMBDA_NAME}-${COMMIT_SHA}"
+          IMAGE_URI="${ECR_URI}:${IMAGE_TAG}"
+          
+          echo "oidc-arn=$OIDC_ARN" >> $GITHUB_OUTPUT
+          echo "lambda-name=$LAMBDA_NAME" >> $GITHUB_OUTPUT
+          echo "lambda-arn=$LAMBDA_ARN" >> $GITHUB_OUTPUT
+          echo "ecr-uri=$ECR_URI" >> $GITHUB_OUTPUT
+          echo "image-uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "account-id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+          
+          echo "✅ Deployment Configuration:"
+          echo "  Lambda Name: $LAMBDA_NAME"
+          echo "  Lambda ARN: $LAMBDA_ARN"
+          echo "  Image URI: $IMAGE_URI (from staging repo)"
+          echo "  Account ID: $ACCOUNT_ID"
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_PROD }}:role/${{ env.OIDC_ROLE_NAME }}
+          role-to-assume: ${{ steps.lambda-config.outputs.oidc-arn }}
           role-session-name: GitHubActions-Prod-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ needs.determine-environment.outputs.aws-region }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Get image URI
-        id: image-uri
+      - name: Deploy ${{ steps.lambda-config.outputs.lambda-name }} to Production
         run: |
-          # For production, use staging ECR repo (images are pushed to staging on release branch)
-          # Use actual Lambda function name for image tag (stg prefix since image is in staging repo)
-          ACTUAL_LAMBDA_NAME_STG="stg-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
-          ACTUAL_LAMBDA_NAME_PRD="prd-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
-          IMAGE_TAG="${ACTUAL_LAMBDA_NAME_STG}-${{ github.sha }}"
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_STAGING }}:${IMAGE_TAG}"
-          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-          echo "Production Lambda Function: ${ACTUAL_LAMBDA_NAME_PRD}"
-          echo "Image from Staging ECR Repository: ${{ env.ECR_REPOSITORY_STAGING }}"
-          echo "Image Tag (staging): ${IMAGE_TAG}"
-          echo "Image URI: ${IMAGE_URI}"
-
-      - name: Determine Lambda Function Name
-        id: lambda-name
-        run: |
-          # Extract number from folder name (e.g., lambda-function-1 -> 1)
-          FOLDER_NAME="${{ matrix.folder }}"
-          LAMBDA_NUMBER=$(echo "$FOLDER_NAME" | sed 's/lambda-function-//')
-          
-          # Use full region name (e.g., us-east-1)
-          REGION_FULL="${{ env.AWS_REGION }}"
-          
-          # Construct Lambda function name: prd-us-east-1-lambda-1
-          LAMBDA_NAME="prd-${REGION_FULL}-lambda-${LAMBDA_NUMBER}"
-          
-          echo "lambda-name=${LAMBDA_NAME}" >> $GITHUB_OUTPUT
-          echo "folder-name=${FOLDER_NAME}" >> $GITHUB_OUTPUT
-          echo "lambda-number=${LAMBDA_NUMBER}" >> $GITHUB_OUTPUT
-          
-          echo "📦 Folder: $FOLDER_NAME"
-          echo "🔢 Lambda Number: $LAMBDA_NUMBER"
-          echo "🌍 Region: ${{ env.AWS_REGION }}"
-          echo "🏷️  Actual Lambda Function Name: $LAMBDA_NAME"
-          echo "💳 AWS Account: ${{ env.AWS_ACCOUNT_PROD }}"
-
-      - name: Deploy ${{ steps.lambda-name.outputs.lambda-name }} to Production
-        run: |
-          LAMBDA_NAME="${{ steps.lambda-name.outputs.lambda-name }}"
-          IMAGE_URI="${{ steps.image-uri.outputs.image-uri }}"
+          LAMBDA_NAME="${{ steps.lambda-config.outputs.lambda-name }}"
+          IMAGE_URI="${{ steps.lambda-config.outputs.image-uri }}"
+          AWS_REGION="${{ needs.determine-environment.outputs.aws-region }}"
           
           echo "🚀 Deploying $LAMBDA_NAME to production environment..."
           
@@ -1005,7 +1049,10 @@ jobs:
           MAX_WAIT=300  # 5 minutes max wait
           WAIT_TIME=0
           while [ $WAIT_TIME -lt $MAX_WAIT ]; do
-            STATE=$(aws lambda get-function --function-name "$LAMBDA_NAME" --region ${{ env.AWS_REGION }} --query 'Configuration.State' --output text 2>/dev/null || echo "Active")
+            STATE=$(aws lambda get-function-configuration \
+              --function-name "$LAMBDA_NAME" \
+              --region "$AWS_REGION" \
+              --query 'State' --output text 2>/dev/null || echo "Active")
             if [ "$STATE" == "Active" ] || [ "$STATE" == "Inactive" ]; then
               echo "Function is ready for update (State: $STATE)"
               break
@@ -1018,17 +1065,22 @@ jobs:
           
           # Update existing Lambda function (functions already exist)
           echo "Updating Lambda function: $LAMBDA_NAME"
-          MAX_RETRIES=3
+          MAX_RETRIES=5
           RETRY_COUNT=0
           
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             if aws lambda update-function-code \
               --function-name "$LAMBDA_NAME" \
               --image-uri "$IMAGE_URI" \
-              --region ${{ env.AWS_REGION }} 2>&1; then
+              --region "$AWS_REGION" 2>&1; then
               echo "Update initiated successfully"
               break
             else
+              ERROR_OUTPUT=$(aws lambda update-function-code \
+                --function-name "$LAMBDA_NAME" \
+                --image-uri "$IMAGE_URI" \
+                --region "$AWS_REGION" 2>&1 || true)
+              echo "Error details: $ERROR_OUTPUT"
               RETRY_COUNT=$((RETRY_COUNT + 1))
               if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                 echo "Update failed, retrying in 15 seconds... (Attempt $RETRY_COUNT/$MAX_RETRIES)"
@@ -1044,7 +1096,7 @@ jobs:
           echo "Waiting for update to complete..."
           aws lambda wait function-updated \
             --function-name "$LAMBDA_NAME" \
-            --region ${{ env.AWS_REGION }}
+            --region "$AWS_REGION"
           
           echo "✅ Successfully deployed $LAMBDA_NAME to production"
 
