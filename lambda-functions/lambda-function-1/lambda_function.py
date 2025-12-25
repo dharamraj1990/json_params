@@ -32,9 +32,10 @@ def lambda_handler(event, context):
     response_data = {
         'message': 'Hello from Lambda!',
         'function': 'lambda-function-1',
-        'version': '3.0.1',
+        'version': '3.0.2',
         'dynamic_mapping': True,
         'workflow_triggered': True,
+        'sequential_deployment': True,
         'timestamp': timestamp,
         'event_type': event_type,
         'environment': env_vars,
