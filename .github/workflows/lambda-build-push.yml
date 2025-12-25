@@ -953,9 +953,9 @@ jobs:
         continue-on-error: true
 
   deploy-prod:
-    needs: [determine-environment, detect-changes, build-and-push, approve-production]
-    # Deploy to production based on branch strategy after approval
-    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true'
+    needs: [determine-environment, detect-changes, build-and-push, approve-staging, approve-production, deploy-staging]
+    # Deploy to production based on branch strategy after staging deployment completes successfully
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
     runs-on: ubuntu-latest
     strategy:
       matrix:
