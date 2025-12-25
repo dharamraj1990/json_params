@@ -1,0 +1,202 @@
+{
+  "version": "4.0.0",
+  "schema_version": "4.0",
+  "last_updated": "2024-01-01T00:00:00Z",
+  "metadata": {
+    "description": "Dynamic Lambda Functions Deployment Mapping - Standard DevOps Configuration",
+    "maintained_by": "DevOps Team"
+  },
+  "aws_base_config": {
+    "region": "us-east-1",
+    "environments": {
+      "dev": {
+        "account_id": "533269020590",
+        "env_prefix": "dev"
+      },
+      "staging": {
+        "account_id": "533269020590",
+        "env_prefix": "stg"
+      },
+      "prod": {
+        "account_id": "533269020590",
+        "env_prefix": "prd"
+      }
+    }
+  },
+  "oidc_config": {
+    "role_name": "oidc-github-action",
+    "session_name_prefix": "GitHubActions",
+    "session_duration": 3600,
+    "arn_pattern": "arn:aws:iam::{account_id}:role/{role_name}"
+  },
+  "ecr_config": {
+    "registry_pattern": "{account_id}.dkr.ecr.{region}.amazonaws.com",
+    "repository_pattern": "{env_prefix}-{region}-repo",
+    "image_tag_pattern": "{lambda_name}-{commit_sha}",
+    "repositories": {
+      "dev": {
+        "name": "dev-us-east-1-repo"
+      },
+      "staging": {
+        "name": "stg-us-east-1-repo"
+      },
+      "prod": {
+        "name": "stg-us-east-1-repo",
+        "note": "Production uses staging ECR repository"
+      }
+    }
+  },
+  "lambda_config": {
+    "name_pattern": "{env_prefix}-{region}-lambda-{function_number}",
+    "arn_pattern": "arn:aws:lambda:{region}:{account_id}:function:{lambda_name}"
+  },
+  "branch_mapping": {
+    "develop": {
+      "environments": ["dev"],
+      "auto_deploy": true,
+      "requires_approval": false
+    },
+    "release": {
+      "environments": ["staging", "prod"],
+      "auto_deploy": false,
+      "requires_approval": true,
+      "deployment_order": ["staging", "prod"]
+    },
+    "main": {
+      "environments": [],
+      "auto_deploy": false,
+      "requires_approval": false
+    }
+  },
+  "deployment_config": {
+    "default_timeout_seconds": 600,
+    "default_retry_attempts": 3,
+    "retry_delay_seconds": 15,
+    "parallel_deployment": {
+      "enabled": true,
+      "max_parallel": 5
+    },
+    "rollback": {
+      "enabled": true,
+      "auto_rollback_on_error": true
+    },
+    "environments": {
+      "dev": {
+        "deployment_timeout": 300,
+        "retry_attempts": 2,
+        "auto_rollback": false
+      },
+      "staging": {
+        "deployment_timeout": 600,
+        "retry_attempts": 3,
+        "auto_rollback": true
+      },
+      "prod": {
+        "deployment_timeout": 900,
+        "retry_attempts": 5,
+        "auto_rollback": true
+      }
+    }
+  },
+  "lambda_functions": [
+    {
+      "id": "lambda-1",
+      "folder_name": "lambda-function-1",
+      "function_number": "1",
+      "description": "Lambda Function 1",
+      "team": "backend-team",
+      "ecr_repository_ref": {
+        "dev": "dev",
+        "staging": "staging",
+        "prod": "staging"
+      },
+      "deployment": {
+        "enabled": true,
+        "deployment_order": 1,
+        "dependencies": []
+      }
+    },
+    {
+      "id": "lambda-2",
+      "folder_name": "lambda-function-2",
+      "function_number": "2",
+      "description": "Lambda Function 2",
+      "team": "backend-team",
+      "ecr_repository_ref": {
+        "dev": "dev",
+        "staging": "staging",
+        "prod": "staging"
+      },
+      "deployment": {
+        "enabled": true,
+        "deployment_order": 2,
+        "dependencies": []
+      }
+    },
+    {
+      "id": "lambda-3",
+      "folder_name": "lambda-function-3",
+      "function_number": "3",
+      "description": "Lambda Function 3",
+      "team": "backend-team",
+      "ecr_repository_ref": {
+        "dev": "dev",
+        "staging": "staging",
+        "prod": "staging"
+      },
+      "deployment": {
+        "enabled": true,
+        "deployment_order": 3,
+        "dependencies": []
+      }
+    },
+    {
+      "id": "lambda-4",
+      "folder_name": "lambda-function-4",
+      "function_number": "4",
+      "description": "Lambda Function 4",
+      "team": "backend-team",
+      "ecr_repository_ref": {
+        "dev": "dev",
+        "staging": "staging",
+        "prod": "staging"
+      },
+      "deployment": {
+        "enabled": true,
+        "deployment_order": 4,
+        "dependencies": []
+      }
+    },
+    {
+      "id": "lambda-5",
+      "folder_name": "lambda-function-5",
+      "function_number": "5",
+      "description": "Lambda Function 5",
+      "team": "backend-team",
+      "ecr_repository_ref": {
+        "dev": "dev",
+        "staging": "staging",
+        "prod": "staging"
+      },
+      "deployment": {
+        "enabled": true,
+        "deployment_order": 5,
+        "dependencies": []
+      }
+    }
+  ],
+  "construction_helpers": {
+    "get_oidc_arn": "arn:aws:iam::{account_id}:role/{role_name}",
+    "get_ecr_uri": "{account_id}.dkr.ecr.{region}.amazonaws.com/{repo_name}",
+    "get_lambda_name": "{env_prefix}-{region}-lambda-{function_number}",
+    "get_lambda_arn": "arn:aws:lambda:{region}:{account_id}:function:{lambda_name}",
+    "get_image_tag": "{lambda_name}-{commit_sha}",
+    "get_image_uri": "{ecr_uri}:{image_tag}"
+  },
+  "summary": {
+    "total_functions": 5,
+    "environments": ["dev", "staging", "prod"],
+    "total_deployments_enabled": 5,
+    "deployment_strategy": "parallel"
+  }
+}
