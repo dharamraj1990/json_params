@@ -24,8 +24,10 @@ def lambda_handler(event, context):
         'body': json.dumps({
             'message': 'Hello from Lambda!',
             'function': 'lambda-function-2',
-            'version': '3.0.0',
+            'version': '3.0.1',
             'dynamic_mapping': True,
+            'workflow_triggered': True,
+            'helper_removed': True,
             'timestamp': datetime.utcnow().isoformat(),
             'deployment': 'automated',
             'build_date': datetime.utcnow().isoformat(),
