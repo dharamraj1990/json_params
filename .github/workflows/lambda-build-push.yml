@@ -776,6 +776,8 @@ jobs:
             - (and other changed functions)
             
             **Note:** Lambda function names follow the pattern: `prd-{region}-lambda-{number}`
+            
+            **ℹ️ Independent Deployment:** This production deployment can proceed independently of staging approval. You do not need to wait for staging to be approved before approving production.
 
   deploy-prod:
     needs: [determine-environment, detect-changes, build-and-push, approve-production]
