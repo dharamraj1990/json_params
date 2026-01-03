@@ -267,17 +267,22 @@ jobs:
           if [ "$ENVIRONMENT" == "dev" ] || [ "$BRANCH_REF" == "refs/heads/develop" ]; then
             ENV_PREFIX="dev"
             ECR_REPO="${{ env.ECR_REPOSITORY_DEV }}"
+            ECR_REPO_STAGING=""
+            ECR_REPO_PROD=""
             echo "Using Dev ECR repository"
           elif [ "$ENVIRONMENT" == "release" ] || [ "$BRANCH_REF" == "refs/heads/release" ]; then
-            # For release branch, we'll push to staging repo first
-            # Production will use staging repo images
+            # For release branch, push to both staging and production repos
             ENV_PREFIX="stg"
             ECR_REPO="${{ env.ECR_REPOSITORY_STAGING }}"
-            echo "Using Staging ECR repository (release branch)"
+            ECR_REPO_STAGING="${{ env.ECR_REPOSITORY_STAGING }}"
+            ECR_REPO_PROD="${{ env.ECR_REPOSITORY_PROD }}"
+            echo "Using Staging and Production ECR repositories (release branch)"
           else
             # Default to dev for PRs and other branches
             ENV_PREFIX="dev"
             ECR_REPO="${{ env.ECR_REPOSITORY_DEV }}"
+            ECR_REPO_STAGING=""
+            ECR_REPO_PROD=""
             echo "Using Dev ECR repository (default)"
           fi
           
@@ -290,12 +295,24 @@ jobs:
           echo "Actual Lambda Function Name: $ACTUAL_LAMBDA_NAME"
           echo "ECR Repository: $ECR_REPO"
           echo "ecr-repo=$ECR_REPO" >> $GITHUB_OUTPUT
+          echo "ecr-repo-staging=$ECR_REPO_STAGING" >> $GITHUB_OUTPUT
+          echo "ecr-repo-prod=$ECR_REPO_PROD" >> $GITHUB_OUTPUT
           echo "lambda-name=$ACTUAL_LAMBDA_NAME" >> $GITHUB_OUTPUT
           echo "folder-name=$FOLDER_NAME" >> $GITHUB_OUTPUT
           
           # Construct full ECR URI
           FULL_ECR_URI="${{ steps.login-ecr.outputs.registry }}/$ECR_REPO"
           echo "ecr-uri=$FULL_ECR_URI" >> $GITHUB_OUTPUT
+          
+          # Construct staging and production ECR URIs if applicable
+          if [ -n "$ECR_REPO_STAGING" ]; then
+            FULL_ECR_URI_STAGING="${{ steps.login-ecr.outputs.registry }}/$ECR_REPO_STAGING"
+            echo "ecr-uri-staging=$FULL_ECR_URI_STAGING" >> $GITHUB_OUTPUT
+          fi
+          if [ -n "$ECR_REPO_PROD" ]; then
+            FULL_ECR_URI_PROD="${{ steps.login-ecr.outputs.registry }}/$ECR_REPO_PROD"
+            echo "ecr-uri-prod=$FULL_ECR_URI_PROD" >> $GITHUB_OUTPUT
+          fi
 
       - name: Set image tag
         id: image-tag
@@ -319,33 +336,55 @@ jobs:
         working-directory: lambda-functions/${{ matrix.folder }}
         run: |
           echo "Building AMD64 Docker image for lambda function: ${{ matrix.folder }}"
-          echo "Image: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64"
+          BASE_IMAGE="${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64"
+          echo "Base Image: $BASE_IMAGE"
           
           docker buildx build \
             --platform linux/amd64 \
-            --tag ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64 \
+            --tag "$BASE_IMAGE" \
             --push \
             --provenance=false \
             --sbom=false \
             .
           
-          echo "✅ AMD64 image built and pushed successfully"
+          echo "✅ AMD64 image built and pushed to $BASE_IMAGE"
+          
+          # If production ECR is configured (release branch), also push to production repo
+          if [ -n "${{ steps.ecr-config.outputs.ecr-uri-prod }}" ]; then
+            PROD_IMAGE="${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}-amd64"
+            echo "Pushing AMD64 image to production ECR: $PROD_IMAGE"
+            docker pull "$BASE_IMAGE"
+            docker tag "$BASE_IMAGE" "$PROD_IMAGE"
+            docker push "$PROD_IMAGE"
+            echo "✅ AMD64 image also pushed to production ECR"
+          fi
 
       - name: Build and push ARM64 image
         working-directory: lambda-functions/${{ matrix.folder }}
         run: |
           echo "Building ARM64 Docker image for lambda function: ${{ matrix.folder }}"
-          echo "Image: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64"
+          BASE_IMAGE="${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64"
+          echo "Base Image: $BASE_IMAGE"
           
           docker buildx build \
             --platform linux/arm64 \
-            --tag ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64 \
+            --tag "$BASE_IMAGE" \
             --push \
             --provenance=false \
             --sbom=false \
             .
           
-          echo "✅ ARM64 image built and pushed successfully"
+          echo "✅ ARM64 image built and pushed to $BASE_IMAGE"
+          
+          # If production ECR is configured (release branch), also push to production repo
+          if [ -n "${{ steps.ecr-config.outputs.ecr-uri-prod }}" ]; then
+            PROD_IMAGE="${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}-arm64"
+            echo "Pushing ARM64 image to production ECR: $PROD_IMAGE"
+            docker pull "$BASE_IMAGE"
+            docker tag "$BASE_IMAGE" "$PROD_IMAGE"
+            docker push "$PROD_IMAGE"
+            echo "✅ ARM64 image also pushed to production ECR"
+          fi
 
       - name: Create multi-architecture manifest list
         run: |
@@ -361,6 +400,17 @@ jobs:
           echo "📦 Multi-arch manifest: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
           echo "📦 AMD64 single-arch: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64"
           echo "📦 ARM64 single-arch: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64"
+          
+          # If production ECR is configured (release branch), also create manifest list for production
+          if [ -n "${{ steps.ecr-config.outputs.ecr-uri-prod }}" ]; then
+            echo "Creating multi-architecture manifest list for production ECR..."
+            docker buildx imagetools create \
+              --tag ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }} \
+              ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}-amd64 \
+              ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}-arm64
+            echo "✅ Production multi-arch manifest created: ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}"
+          fi
+          
           echo ""
           echo "ℹ️  Lambda functions will use architecture-specific tags (-amd64 or -arm64)"
           echo "   The multi-arch manifest is available for general Docker use"
@@ -738,10 +788,10 @@ jobs:
           echo "✅ Successfully deployed $LAMBDA_NAME to staging"
 
   approve-production:
-    needs: [determine-environment, detect-changes, build-and-push, deploy-staging]
+    needs: [determine-environment, detect-changes, build-and-push]
     # Approval required for production based on branch strategy
-    # Production approval only starts after staging deployment completes successfully
-    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    # Production approval is independent and can proceed separately from staging
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -778,7 +828,7 @@ jobs:
             
             **Note:** Lambda function names follow the pattern: `prd-{region}-lambda-{number}`
             
-            **ℹ️ Sequential Deployment:** Staging deployment has completed successfully. This production deployment can now proceed after approval.
+            **ℹ️ Independent Deployment:** Production deployment uses a separate ECR repository and can proceed independently of staging deployment.
 
   deploy-prod:
     needs: [determine-environment, detect-changes, build-and-push, approve-production]
@@ -854,9 +904,11 @@ jobs:
             echo "🏗️  Lambda uses x86_64 architecture - using AMD64 image"
           fi
           
-          # Use architecture-specific tag
+          # Use architecture-specific tag from production ECR repository
           IMAGE_TAG="${BASE_IMAGE_TAG}-${ARCH_TAG}"
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PROD }}:${IMAGE_TAG}"
+          
+          echo "Using Production ECR Repository: ${{ env.ECR_REPOSITORY_PROD }}"
           
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           echo "lambda-arch=${LAMBDA_ARCH}" >> $GITHUB_OUTPUT
