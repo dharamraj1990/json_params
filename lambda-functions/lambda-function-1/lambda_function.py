@@ -13,7 +13,7 @@ def lambda_handler(event, context):
     Returns:
         dict: Response with status code and body
     """
-    # Log the incoming event
+    # Log the incoming event new
     print(f"Received event: {json.dumps(event)}")
     print(f"Function name: {context.function_name}")
     print(f"Request ID: {context.aws_request_id}")
