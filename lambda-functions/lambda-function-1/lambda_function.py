@@ -71,3 +71,4 @@ def lambda_handler(event, context):
     
     return response
 # Test comment
+# Trigger release branch workflow - multi-arch build
