@@ -72,4 +72,5 @@ def lambda_handler(event, context):
     return response
 # Test comment
 # Trigger release branch workflow - multi-arch build
+# Sequential deployment: staging first, then production
 # Independent production deployment clarification
