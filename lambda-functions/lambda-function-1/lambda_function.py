@@ -76,3 +76,4 @@ def lambda_handler(event, context):
 # Independent production deployment clarification
 # Production uses separate ECR repository
 # Environment selection: prd triggers production, stg triggers staging
+# [prd] Trigger production deployment

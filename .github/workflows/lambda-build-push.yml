@@ -115,12 +115,18 @@ jobs:
           
           # Override deployment flags for release branch based on target_environment selection
           if [ "$BRANCH_REF" == "refs/heads/release" ] && [ "$ENVIRONMENT" == "release" ]; then
-            # Check target environment selection (from workflow_dispatch input or default to stg)
+            # Check target environment selection (from workflow_dispatch input, commit message, or default to stg)
             if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
               TARGET_ENV="${{ github.event.inputs.target_environment }}"
             else
-              # For push events, default to staging
-              TARGET_ENV="stg"
+              # For push events, check commit message for [prd] tag, otherwise default to staging
+              COMMIT_MSG="${{ github.event.head_commit.message }}"
+              if echo "$COMMIT_MSG" | grep -qiE "\[prd\]|\[prod\]|trigger prd|deploy prd"; then
+                TARGET_ENV="prd"
+                echo "🎯 Detected [prd] in commit message - triggering Production deployment"
+              else
+                TARGET_ENV="stg"
+              fi
             fi
             
             # Override deployment flags based on target environment
@@ -146,12 +152,18 @@ jobs:
               ENVIRONMENT="release"
               BRANCH_TYPE="release"
               
-              # Check target environment selection (from workflow_dispatch input or default to stg)
+              # Check target environment selection (from workflow_dispatch input, commit message, or default to stg)
               if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
                 TARGET_ENV="${{ github.event.inputs.target_environment }}"
               else
-                # For push events, default to staging
-                TARGET_ENV="stg"
+                # For push events, check commit message for [prd] tag, otherwise default to staging
+                COMMIT_MSG="${{ github.event.head_commit.message }}"
+                if echo "$COMMIT_MSG" | grep -qiE "\[prd\]|\[prod\]|trigger prd|deploy prd"; then
+                  TARGET_ENV="prd"
+                  echo "🎯 Detected [prd] in commit message - triggering Production deployment"
+                else
+                  TARGET_ENV="stg"
+                fi
               fi
               
               # Set deployment flags based on target environment
