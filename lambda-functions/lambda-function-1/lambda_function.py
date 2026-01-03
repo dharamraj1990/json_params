@@ -67,3 +67,4 @@ def lambda_handler(event, context):
     
     return response
 # Test comment
+# Multi-architecture build support (ARM64/AMD64)
