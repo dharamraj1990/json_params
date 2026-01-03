@@ -71,3 +71,4 @@ def lambda_handler(event, context):
 # Trigger workflow to test multi-arch build fix
 # Testing single build with multi-arch support
 # Testing single-arch images for Lambda compatibility
+# Trigger workflow
