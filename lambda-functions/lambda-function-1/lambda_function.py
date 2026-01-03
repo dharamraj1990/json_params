@@ -75,3 +75,4 @@ def lambda_handler(event, context):
 # Sequential deployment: staging first, then production
 # Independent production deployment clarification
 # Production uses separate ECR repository
+# Environment selection: prd triggers production, stg triggers staging

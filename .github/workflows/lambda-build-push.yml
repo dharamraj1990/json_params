@@ -13,6 +13,16 @@ on:
       - release
     paths:
       - 'lambda-functions/**'
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: 'Target environment for release branch (stg or prd)'
+        required: false
+        default: 'stg'
+        type: choice
+        options:
+          - stg
+          - prd
 
 env:
   MAP_FILE: .github/lambda-repo-map.json
@@ -103,6 +113,28 @@ jobs:
             fi
           fi
           
+          # Override deployment flags for release branch based on target_environment selection
+          if [ "$BRANCH_REF" == "refs/heads/release" ] && [ "$ENVIRONMENT" == "release" ]; then
+            # Check target environment selection (from workflow_dispatch input or default to stg)
+            if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+              TARGET_ENV="${{ github.event.inputs.target_environment }}"
+            else
+              # For push events, default to staging
+              TARGET_ENV="stg"
+            fi
+            
+            # Override deployment flags based on target environment
+            if [ "$TARGET_ENV" == "prd" ]; then
+              DEPLOY_STAGING="false"
+              DEPLOY_PROD="true"
+              echo "🎯 Overriding to Production deployment (prd selected)"
+            else
+              DEPLOY_STAGING="true"
+              DEPLOY_PROD="false"
+              echo "🎯 Overriding to Staging deployment (stg selected/default)"
+            fi
+          fi
+          
           # Fallback to hardcoded logic if mapping not found
           if [ "$ENVIRONMENT" == "none" ]; then
             if [ "$BRANCH_REF" == "refs/heads/develop" ]; then
@@ -112,10 +144,26 @@ jobs:
               echo "💻 Develop branch detected - Dev deployment (automatic)"
             elif [ "$BRANCH_REF" == "refs/heads/release" ]; then
               ENVIRONMENT="release"
-              DEPLOY_STAGING="true"
-              DEPLOY_PROD="true"
               BRANCH_TYPE="release"
-              echo "🚀 Release branch detected - Staging and Production deployment (with approval)"
+              
+              # Check target environment selection (from workflow_dispatch input or default to stg)
+              if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+                TARGET_ENV="${{ github.event.inputs.target_environment }}"
+              else
+                # For push events, default to staging
+                TARGET_ENV="stg"
+              fi
+              
+              # Set deployment flags based on target environment
+              if [ "$TARGET_ENV" == "prd" ]; then
+                DEPLOY_STAGING="false"
+                DEPLOY_PROD="true"
+                echo "🚀 Release branch detected - Production deployment selected (with approval)"
+              else
+                DEPLOY_STAGING="true"
+                DEPLOY_PROD="false"
+                echo "🚀 Release branch detected - Staging deployment (with approval)"
+              fi
             else
               ENVIRONMENT="unknown"
               BRANCH_TYPE="other"
@@ -293,11 +341,21 @@ jobs:
           AWS_REGION="${{ needs.determine-environment.outputs.aws-region }}"
           COMMIT_SHA="${{ github.sha }}"
           
-          # Determine target environment for build (dev for PRs/builds, staging for release)
+          # Determine target environment for build
+          DEPLOY_STAGING="${{ needs.determine-environment.outputs.should-deploy-staging }}"
+          DEPLOY_PROD="${{ needs.determine-environment.outputs.should-deploy-prod }}"
+          
           if [ "$ENVIRONMENT" == "pr" ] || [ "$ENVIRONMENT" == "dev" ] || [ "$ENVIRONMENT" == "unknown" ]; then
             BUILD_ENV="dev"
           elif [ "$ENVIRONMENT" == "release" ]; then
-            BUILD_ENV="staging"
+            # For release branch, use selected environment (staging or production)
+            if [ "$DEPLOY_PROD" == "true" ]; then
+              BUILD_ENV="prod"
+              echo "🎯 Building for Production environment (prd selected)"
+            else
+              BUILD_ENV="staging"
+              echo "🎯 Building for Staging environment (stg selected/default)"
+            fi
           else
             BUILD_ENV="dev"
           fi
@@ -333,18 +391,6 @@ jobs:
           
           # Construct image tag
           IMAGE_TAG="${LAMBDA_NAME}-${COMMIT_SHA}"
-          
-          # For release branch, also get production ECR info
-          ECR_URI_PROD=""
-          if [ "$ENVIRONMENT" == "release" ]; then
-            ECR_REF_PROD=$(echo "$FUNCTION" | jq -r ".ecr_repository_ref.prod")
-            ECR_REPO_NAME_PROD=$(jq -r ".ecr_config.repositories.$ECR_REF_PROD.name" "$MAP_FILE")
-            ECR_URI_PROD="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME_PROD}"
-            echo "ecr-repo-name-prod=$ECR_REPO_NAME_PROD" >> $GITHUB_OUTPUT
-            echo "ecr-uri-prod=$ECR_URI_PROD" >> $GITHUB_OUTPUT
-            echo "Production ECR Repository: $ECR_REPO_NAME_PROD"
-            echo "Production ECR URI: $ECR_URI_PROD"
-          fi
           
           echo "build-env=$BUILD_ENV" >> $GITHUB_OUTPUT
           echo "account-id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
@@ -411,27 +457,7 @@ jobs:
               --provenance=false \
               --sbom=false \
               .
-            echo "✅ AMD64 image built and pushed to staging ECR"
-          fi
-          
-          # If production ECR is configured (release branch), also push to production repo
-          if [ -n "${{ steps.lambda-config.outputs.ecr-uri-prod }}" ]; then
-            PROD_IMAGE_URI_AMD64="${{ steps.lambda-config.outputs.ecr-uri-prod }}:${IMAGE_TAG}-amd64"
-            PROD_ECR_REPO_NAME=$(echo "${{ steps.lambda-config.outputs.ecr-uri-prod }}" | sed 's|.*/||')
-            echo "Checking if production image tag already exists..."
-            if aws ecr describe-images \
-              --repository-name "$PROD_ECR_REPO_NAME" \
-              --image-ids imageTag="${IMAGE_TAG}-amd64" \
-              --region "$AWS_REGION" \
-              >/dev/null 2>&1; then
-              echo "⚠️  Production image tag ${IMAGE_TAG}-amd64 already exists in $PROD_ECR_REPO_NAME. Skipping push."
-            else
-              echo "Pushing AMD64 image to production ECR: $PROD_IMAGE_URI_AMD64"
-              docker pull "$FULL_IMAGE_URI_AMD64"
-              docker tag "$FULL_IMAGE_URI_AMD64" "$PROD_IMAGE_URI_AMD64"
-              docker push "$PROD_IMAGE_URI_AMD64"
-              echo "✅ AMD64 image also pushed to production ECR"
-            fi
+            echo "✅ AMD64 image built and pushed"
           fi
 
       - name: Build and push ARM64 image
@@ -467,27 +493,7 @@ jobs:
               --provenance=false \
               --sbom=false \
               .
-            echo "✅ ARM64 image built and pushed to staging ECR"
-          fi
-          
-          # If production ECR is configured (release branch), also push to production repo
-          if [ -n "${{ steps.lambda-config.outputs.ecr-uri-prod }}" ]; then
-            PROD_IMAGE_URI_ARM64="${{ steps.lambda-config.outputs.ecr-uri-prod }}:${IMAGE_TAG}-arm64"
-            PROD_ECR_REPO_NAME=$(echo "${{ steps.lambda-config.outputs.ecr-uri-prod }}" | sed 's|.*/||')
-            echo "Checking if production image tag already exists..."
-            if aws ecr describe-images \
-              --repository-name "$PROD_ECR_REPO_NAME" \
-              --image-ids imageTag="${IMAGE_TAG}-arm64" \
-              --region "$AWS_REGION" \
-              >/dev/null 2>&1; then
-              echo "⚠️  Production image tag ${IMAGE_TAG}-arm64 already exists in $PROD_ECR_REPO_NAME. Skipping push."
-            else
-              echo "Pushing ARM64 image to production ECR: $PROD_IMAGE_URI_ARM64"
-              docker pull "$FULL_IMAGE_URI_ARM64"
-              docker tag "$FULL_IMAGE_URI_ARM64" "$PROD_IMAGE_URI_ARM64"
-              docker push "$PROD_IMAGE_URI_ARM64"
-              echo "✅ ARM64 image also pushed to production ECR"
-            fi
+            echo "✅ ARM64 image built and pushed"
           fi
 
       - name: Create multi-architecture manifest list
@@ -520,29 +526,6 @@ jobs:
           echo "📦 Multi-arch manifest: $FULL_IMAGE_URI"
           echo "📦 AMD64 single-arch: ${ECR_URI}:${IMAGE_TAG}-amd64"
           echo "📦 ARM64 single-arch: ${ECR_URI}:${IMAGE_TAG}-arm64"
-          
-          # If production ECR is configured (release branch), also create manifest list for production
-          if [ -n "${{ steps.lambda-config.outputs.ecr-uri-prod }}" ]; then
-            ECR_URI_PROD="${{ steps.lambda-config.outputs.ecr-uri-prod }}"
-            FULL_IMAGE_URI_PROD="${ECR_URI_PROD}:${IMAGE_TAG}"
-            echo "Creating multi-architecture manifest list for production ECR..."
-            set +e
-            PROD_OUTPUT=$(docker buildx imagetools create \
-              --tag "$FULL_IMAGE_URI_PROD" \
-              "${ECR_URI_PROD}:${IMAGE_TAG}-amd64" \
-              "${ECR_URI_PROD}:${IMAGE_TAG}-arm64" 2>&1)
-            PROD_EXIT_CODE=$?
-            set -e
-            
-            if [ $PROD_EXIT_CODE -eq 0 ]; then
-              echo "✅ Production multi-arch manifest created: $FULL_IMAGE_URI_PROD"
-            elif echo "$PROD_OUTPUT" | grep -q "already exists\|immutable\|cannot be overwritten"; then
-              echo "⚠️  Production manifest list already exists for $FULL_IMAGE_URI_PROD. Using existing manifest."
-            else
-              echo "⚠️  Warning: Failed to create production manifest list: $PROD_OUTPUT"
-              echo "Continuing with deployment..."
-            fi
-          fi
           
           echo ""
           echo "ℹ️  Lambda functions will use architecture-specific tags (-amd64 or -arm64)"
