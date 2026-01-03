@@ -315,7 +315,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Docker image (AMD64)
+      - name: Build and push AMD64 image
         working-directory: lambda-functions/${{ matrix.folder }}
         run: |
           echo "Building AMD64 Docker image for lambda function: ${{ matrix.folder }}"
@@ -331,7 +331,7 @@ jobs:
           
           echo "✅ AMD64 image built and pushed successfully"
 
-      - name: Build and push Docker image (ARM64)
+      - name: Build and push ARM64 image
         working-directory: lambda-functions/${{ matrix.folder }}
         run: |
           echo "Building ARM64 Docker image for lambda function: ${{ matrix.folder }}"
@@ -347,15 +347,23 @@ jobs:
           
           echo "✅ ARM64 image built and pushed successfully"
 
-      - name: Tag AMD64 as default (for Lambda compatibility)
+      - name: Create multi-architecture manifest list
         run: |
-          # Lambda doesn't support manifest lists, so we tag AMD64 as the default
-          # Lambda functions can use either -amd64 or -arm64 tag based on their architecture
-          echo "Tagging AMD64 image as default tag (Lambda compatible)"
-          docker pull ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64
-          docker tag ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64 ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}
-          docker push ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}
-          echo "✅ Default tag (AMD64) pushed successfully"
+          echo "Creating multi-architecture manifest list..."
+          # Create a manifest list that combines both architectures
+          # This allows Docker to automatically select the correct architecture when pulling
+          docker buildx imagetools create \
+            --tag ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }} \
+            ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64 \
+            ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64
+          
+          echo "✅ Multi-architecture manifest list created successfully"
+          echo "📦 Multi-arch manifest: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
+          echo "📦 AMD64 image: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64"
+          echo "📦 ARM64 image: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64"
+          echo ""
+          echo "ℹ️  Note: Lambda functions will use architecture-specific tags (-amd64 or -arm64)"
+          echo "   The manifest list is available for general Docker use"
 
       - name: Output image details
         run: |
