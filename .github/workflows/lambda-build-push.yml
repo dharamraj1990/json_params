@@ -314,26 +314,48 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
 
-      - name: Build and push Docker image (multi-arch)
+      - name: Build and push Docker image (AMD64)
         working-directory: lambda-functions/${{ matrix.folder }}
         run: |
-          echo "Building multi-architecture Docker image for lambda function: ${{ matrix.folder }}"
-          echo "Platforms: linux/amd64,linux/arm64"
-          echo "Image: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
+          echo "Building AMD64 Docker image for lambda function: ${{ matrix.folder }}"
+          echo "Image: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64"
           
           docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --tag ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }} \
+            --platform linux/amd64 \
+            --tag ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64 \
             --push \
             --provenance=false \
             --sbom=false \
             .
           
-          echo "✅ Multi-architecture image built and pushed successfully"
-          echo "Image URI: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
+          echo "✅ AMD64 image built and pushed successfully"
+
+      - name: Build and push Docker image (ARM64)
+        working-directory: lambda-functions/${{ matrix.folder }}
+        run: |
+          echo "Building ARM64 Docker image for lambda function: ${{ matrix.folder }}"
+          echo "Image: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64"
+          
+          docker buildx build \
+            --platform linux/arm64 \
+            --tag ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64 \
+            --push \
+            --provenance=false \
+            --sbom=false \
+            .
+          
+          echo "✅ ARM64 image built and pushed successfully"
+
+      - name: Tag AMD64 as default (for Lambda compatibility)
+        run: |
+          # Lambda doesn't support manifest lists, so we tag AMD64 as the default
+          # Lambda functions can use either -amd64 or -arm64 tag based on their architecture
+          echo "Tagging AMD64 image as default tag (Lambda compatible)"
+          docker pull ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64
+          docker tag ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64 ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}
+          docker push ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}
+          echo "✅ Default tag (AMD64) pushed successfully"
 
       - name: Output image details
         run: |
@@ -371,19 +393,6 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Get image URI
-        id: image-uri
-        run: |
-          # Use actual Lambda function name for image tag
-          ACTUAL_LAMBDA_NAME="dev-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
-          IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DEV }}:${IMAGE_TAG}"
-          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
-          echo "ECR Repository: ${{ env.ECR_REPOSITORY_DEV }}"
-          echo "Image Tag: ${IMAGE_TAG}"
-          echo "Image URI: ${IMAGE_URI}"
-
       - name: Determine Lambda Function Name
         id: lambda-name
         run: |
@@ -406,6 +415,43 @@ jobs:
           echo "🌍 Region: ${{ env.AWS_REGION }}"
           echo "🏷️  Actual Lambda Function Name: $LAMBDA_NAME"
           echo "💳 AWS Account: ${{ env.AWS_ACCOUNT_DEV }}"
+
+      - name: Get Lambda architecture and image URI
+        id: image-uri
+        run: |
+          LAMBDA_NAME="${{ steps.lambda-name.outputs.lambda-name }}"
+          ACTUAL_LAMBDA_NAME="dev-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
+          BASE_IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
+          
+          # Get Lambda function architecture
+          echo "🔍 Checking Lambda function architecture..."
+          LAMBDA_ARCH=$(aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Architectures[0]' \
+            --output text 2>/dev/null || echo "x86_64")
+          
+          # Map Lambda architecture to Docker platform tag
+          if [ "$LAMBDA_ARCH" == "arm64" ]; then
+            ARCH_TAG="arm64"
+            echo "🏗️  Lambda uses ARM64 architecture - using ARM64 image"
+          else
+            ARCH_TAG="amd64"
+            echo "🏗️  Lambda uses x86_64 architecture - using AMD64 image"
+          fi
+          
+          # Use architecture-specific tag if available, otherwise fall back to default
+          IMAGE_TAG="${BASE_IMAGE_TAG}-${ARCH_TAG}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DEV }}:${IMAGE_TAG}"
+          
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "lambda-arch=${LAMBDA_ARCH}" >> $GITHUB_OUTPUT
+          echo "arch-tag=${ARCH_TAG}" >> $GITHUB_OUTPUT
+          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
+          echo "Lambda Architecture: ${LAMBDA_ARCH}"
+          echo "ECR Repository: ${{ env.ECR_REPOSITORY_DEV }}"
+          echo "Image Tag: ${IMAGE_TAG}"
+          echo "Image URI: ${IMAGE_URI}"
 
       - name: Deploy ${{ steps.lambda-name.outputs.lambda-name }} to Dev
         run: |
@@ -568,19 +614,6 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Get image URI
-        id: image-uri
-        run: |
-          # Use actual Lambda function name for image tag
-          ACTUAL_LAMBDA_NAME="stg-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
-          IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_STAGING }}:${IMAGE_TAG}"
-          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
-          echo "ECR Repository: ${{ env.ECR_REPOSITORY_STAGING }}"
-          echo "Image Tag: ${IMAGE_TAG}"
-          echo "Image URI: ${IMAGE_URI}"
-
       - name: Determine Lambda Function Name
         id: lambda-name
         run: |
@@ -603,6 +636,43 @@ jobs:
           echo "🌍 Region: ${{ env.AWS_REGION }}"
           echo "🏷️  Actual Lambda Function Name: $LAMBDA_NAME"
           echo "💳 AWS Account: ${{ env.AWS_ACCOUNT_STAGING }}"
+
+      - name: Get Lambda architecture and image URI
+        id: image-uri
+        run: |
+          LAMBDA_NAME="${{ steps.lambda-name.outputs.lambda-name }}"
+          ACTUAL_LAMBDA_NAME="stg-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
+          BASE_IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
+          
+          # Get Lambda function architecture
+          echo "🔍 Checking Lambda function architecture..."
+          LAMBDA_ARCH=$(aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Architectures[0]' \
+            --output text 2>/dev/null || echo "x86_64")
+          
+          # Map Lambda architecture to Docker platform tag
+          if [ "$LAMBDA_ARCH" == "arm64" ]; then
+            ARCH_TAG="arm64"
+            echo "🏗️  Lambda uses ARM64 architecture - using ARM64 image"
+          else
+            ARCH_TAG="amd64"
+            echo "🏗️  Lambda uses x86_64 architecture - using AMD64 image"
+          fi
+          
+          # Use architecture-specific tag
+          IMAGE_TAG="${BASE_IMAGE_TAG}-${ARCH_TAG}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_STAGING }}:${IMAGE_TAG}"
+          
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "lambda-arch=${LAMBDA_ARCH}" >> $GITHUB_OUTPUT
+          echo "arch-tag=${ARCH_TAG}" >> $GITHUB_OUTPUT
+          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
+          echo "Lambda Architecture: ${LAMBDA_ARCH}"
+          echo "ECR Repository: ${{ env.ECR_REPOSITORY_STAGING }}"
+          echo "Image Tag: ${IMAGE_TAG}"
+          echo "Image URI: ${IMAGE_URI}"
 
       - name: Deploy ${{ steps.lambda-name.outputs.lambda-name }} to Staging
         run: |
@@ -726,19 +796,6 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Get image URI
-        id: image-uri
-        run: |
-          # Use actual Lambda function name for image tag
-          ACTUAL_LAMBDA_NAME="prd-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
-          IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PROD }}:${IMAGE_TAG}"
-          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
-          echo "ECR Repository: ${{ env.ECR_REPOSITORY_PROD }}"
-          echo "Image Tag: ${IMAGE_TAG}"
-          echo "Image URI: ${IMAGE_URI}"
-
       - name: Determine Lambda Function Name
         id: lambda-name
         run: |
@@ -761,6 +818,43 @@ jobs:
           echo "🌍 Region: ${{ env.AWS_REGION }}"
           echo "🏷️  Actual Lambda Function Name: $LAMBDA_NAME"
           echo "💳 AWS Account: ${{ env.AWS_ACCOUNT_PROD }}"
+
+      - name: Get Lambda architecture and image URI
+        id: image-uri
+        run: |
+          LAMBDA_NAME="${{ steps.lambda-name.outputs.lambda-name }}"
+          ACTUAL_LAMBDA_NAME="prd-${{ env.AWS_REGION }}-lambda-$(echo '${{ matrix.folder }}' | sed 's/lambda-function-//')"
+          BASE_IMAGE_TAG="${ACTUAL_LAMBDA_NAME}-${{ github.sha }}"
+          
+          # Get Lambda function architecture
+          echo "🔍 Checking Lambda function architecture..."
+          LAMBDA_ARCH=$(aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Architectures[0]' \
+            --output text 2>/dev/null || echo "x86_64")
+          
+          # Map Lambda architecture to Docker platform tag
+          if [ "$LAMBDA_ARCH" == "arm64" ]; then
+            ARCH_TAG="arm64"
+            echo "🏗️  Lambda uses ARM64 architecture - using ARM64 image"
+          else
+            ARCH_TAG="amd64"
+            echo "🏗️  Lambda uses x86_64 architecture - using AMD64 image"
+          fi
+          
+          # Use architecture-specific tag
+          IMAGE_TAG="${BASE_IMAGE_TAG}-${ARCH_TAG}"
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PROD }}:${IMAGE_TAG}"
+          
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "lambda-arch=${LAMBDA_ARCH}" >> $GITHUB_OUTPUT
+          echo "arch-tag=${ARCH_TAG}" >> $GITHUB_OUTPUT
+          echo "Actual Lambda Function: ${ACTUAL_LAMBDA_NAME}"
+          echo "Lambda Architecture: ${LAMBDA_ARCH}"
+          echo "ECR Repository: ${{ env.ECR_REPOSITORY_PROD }}"
+          echo "Image Tag: ${IMAGE_TAG}"
+          echo "Image URI: ${IMAGE_URI}"
 
       - name: Deploy ${{ steps.lambda-name.outputs.lambda-name }} to Production
         run: |
