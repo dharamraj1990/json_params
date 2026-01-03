@@ -363,31 +363,70 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push AMD64 image
         working-directory: lambda-functions/${{ matrix.folder }}
         run: |
           ECR_URI="${{ steps.lambda-config.outputs.ecr-uri }}"
           IMAGE_TAG="${{ steps.lambda-config.outputs.image-tag }}"
-          FULL_IMAGE_URI="${ECR_URI}:${IMAGE_TAG}"
+          FULL_IMAGE_URI_AMD64="${ECR_URI}:${IMAGE_TAG}-amd64"
           
-          echo "Building Docker image for lambda function: ${{ matrix.folder }}"
-          echo "Image URI: $FULL_IMAGE_URI"
+          echo "Building AMD64 Docker image for lambda function: ${{ matrix.folder }}"
+          echo "Image URI: $FULL_IMAGE_URI_AMD64"
           
-          docker build -t "$FULL_IMAGE_URI" .
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag "$FULL_IMAGE_URI_AMD64" \
+            --push \
+            --provenance=false \
+            --sbom=false \
+            .
           
-          echo "Image built successfully with tag: $IMAGE_TAG"
+          echo "✅ AMD64 image built and pushed successfully"
 
-      - name: Push Docker image to ECR
+      - name: Build and push ARM64 image
+        working-directory: lambda-functions/${{ matrix.folder }}
+        run: |
+          ECR_URI="${{ steps.lambda-config.outputs.ecr-uri }}"
+          IMAGE_TAG="${{ steps.lambda-config.outputs.image-tag }}"
+          FULL_IMAGE_URI_ARM64="${ECR_URI}:${IMAGE_TAG}-arm64"
+          
+          echo "Building ARM64 Docker image for lambda function: ${{ matrix.folder }}"
+          echo "Image URI: $FULL_IMAGE_URI_ARM64"
+          
+          docker buildx build \
+            --platform linux/arm64 \
+            --tag "$FULL_IMAGE_URI_ARM64" \
+            --push \
+            --provenance=false \
+            --sbom=false \
+            .
+          
+          echo "✅ ARM64 image built and pushed successfully"
+
+      - name: Create multi-architecture manifest list
         run: |
           ECR_URI="${{ steps.lambda-config.outputs.ecr-uri }}"
           IMAGE_TAG="${{ steps.lambda-config.outputs.image-tag }}"
           FULL_IMAGE_URI="${ECR_URI}:${IMAGE_TAG}"
           
-          echo "Pushing image to ECR: $ECR_URI"
-          docker push "$FULL_IMAGE_URI"
+          echo "Creating multi-architecture manifest list from architecture-specific images..."
+          # Create a manifest list that combines both architectures
+          # This allows Docker to automatically select the correct architecture when pulling
+          docker buildx imagetools create \
+            --tag "$FULL_IMAGE_URI" \
+            "${ECR_URI}:${IMAGE_TAG}-amd64" \
+            "${ECR_URI}:${IMAGE_TAG}-arm64"
           
-          echo "✅ Image pushed successfully"
-          echo "📦 Image URI: $FULL_IMAGE_URI"
+          echo "✅ Multi-architecture manifest list created successfully"
+          echo "📦 Multi-arch manifest: $FULL_IMAGE_URI"
+          echo "📦 AMD64 single-arch: ${ECR_URI}:${IMAGE_TAG}-amd64"
+          echo "📦 ARM64 single-arch: ${ECR_URI}:${IMAGE_TAG}-arm64"
+          echo ""
+          echo "ℹ️  Lambda functions will use architecture-specific tags (-amd64 or -arm64)"
+          echo "   The multi-arch manifest is available for general Docker use"
 
       - name: Output image details
         run: |
@@ -479,11 +518,35 @@ jobs:
       - name: Deploy ${{ steps.lambda-config.outputs.lambda-name }} to Dev
         run: |
           LAMBDA_NAME="${{ steps.lambda-config.outputs.lambda-name }}"
-          IMAGE_URI="${{ steps.lambda-config.outputs.image-uri }}"
+          BASE_IMAGE_URI="${{ steps.lambda-config.outputs.image-uri }}"
           AWS_REGION="${{ needs.determine-environment.outputs.aws-region }}"
           
           echo "🚀 Deploying $LAMBDA_NAME to dev environment..."
-          echo "📦 Image URI: $IMAGE_URI"
+          
+          # Get Lambda function architecture
+          echo "🔍 Checking Lambda function architecture..."
+          LAMBDA_ARCH=$(aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Architectures[0]' \
+            --output text 2>/dev/null || echo "x86_64")
+          
+          # Map Lambda architecture to Docker platform tag
+          if [ "$LAMBDA_ARCH" == "arm64" ]; then
+            ARCH_TAG="arm64"
+            echo "🏗️  Lambda uses ARM64 architecture - using ARM64 image"
+          else
+            ARCH_TAG="amd64"
+            echo "🏗️  Lambda uses x86_64 architecture - using AMD64 image"
+          fi
+          
+          # Construct architecture-specific image URI
+          IMAGE_URI="${BASE_IMAGE_URI}-${ARCH_TAG}"
+          
+          echo "📦 Base Image URI: $BASE_IMAGE_URI"
+          echo "📦 Lambda Architecture: $LAMBDA_ARCH"
+          echo "📦 Architecture Tag: $ARCH_TAG"
+          echo "📦 Final Image URI: $IMAGE_URI"
           
           # List available Lambda functions for debugging
           echo "📋 Listing available Lambda functions in region $AWS_REGION..."
@@ -772,10 +835,35 @@ jobs:
       - name: Deploy ${{ steps.lambda-config.outputs.lambda-name }} to Staging
         run: |
           LAMBDA_NAME="${{ steps.lambda-config.outputs.lambda-name }}"
-          IMAGE_URI="${{ steps.lambda-config.outputs.image-uri }}"
+          BASE_IMAGE_URI="${{ steps.lambda-config.outputs.image-uri }}"
           AWS_REGION="${{ needs.determine-environment.outputs.aws-region }}"
           
           echo "🚀 Deploying $LAMBDA_NAME to staging environment..."
+          
+          # Get Lambda function architecture
+          echo "🔍 Checking Lambda function architecture..."
+          LAMBDA_ARCH=$(aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Architectures[0]' \
+            --output text 2>/dev/null || echo "x86_64")
+          
+          # Map Lambda architecture to Docker platform tag
+          if [ "$LAMBDA_ARCH" == "arm64" ]; then
+            ARCH_TAG="arm64"
+            echo "🏗️  Lambda uses ARM64 architecture - using ARM64 image"
+          else
+            ARCH_TAG="amd64"
+            echo "🏗️  Lambda uses x86_64 architecture - using AMD64 image"
+          fi
+          
+          # Construct architecture-specific image URI
+          IMAGE_URI="${BASE_IMAGE_URI}-${ARCH_TAG}"
+          
+          echo "📦 Base Image URI: $BASE_IMAGE_URI"
+          echo "📦 Lambda Architecture: $LAMBDA_ARCH"
+          echo "📦 Architecture Tag: $ARCH_TAG"
+          echo "📦 Final Image URI: $IMAGE_URI"
           
           # Wait for any in-progress updates to complete
           echo "Checking for in-progress updates..."
@@ -1039,8 +1127,33 @@ jobs:
       - name: Deploy ${{ steps.lambda-config.outputs.lambda-name }} to Production
         run: |
           LAMBDA_NAME="${{ steps.lambda-config.outputs.lambda-name }}"
-          IMAGE_URI="${{ steps.lambda-config.outputs.image-uri }}"
+          BASE_IMAGE_URI="${{ steps.lambda-config.outputs.image-uri }}"
           AWS_REGION="${{ needs.determine-environment.outputs.aws-region }}"
+          
+          # Get Lambda function architecture
+          echo "🔍 Checking Lambda function architecture..."
+          LAMBDA_ARCH=$(aws lambda get-function-configuration \
+            --function-name "$LAMBDA_NAME" \
+            --region "$AWS_REGION" \
+            --query 'Architectures[0]' \
+            --output text 2>/dev/null || echo "x86_64")
+          
+          # Map Lambda architecture to Docker platform tag
+          if [ "$LAMBDA_ARCH" == "arm64" ]; then
+            ARCH_TAG="arm64"
+            echo "🏗️  Lambda uses ARM64 architecture - using ARM64 image"
+          else
+            ARCH_TAG="amd64"
+            echo "🏗️  Lambda uses x86_64 architecture - using AMD64 image"
+          fi
+          
+          # Construct architecture-specific image URI
+          IMAGE_URI="${BASE_IMAGE_URI}-${ARCH_TAG}"
+          
+          echo "📦 Base Image URI: $BASE_IMAGE_URI"
+          echo "📦 Lambda Architecture: $LAMBDA_ARCH"
+          echo "📦 Architecture Tag: $ARCH_TAG"
+          echo "📦 Final Image URI: $IMAGE_URI"
           
           echo "🚀 Deploying $LAMBDA_NAME to production environment..."
           
