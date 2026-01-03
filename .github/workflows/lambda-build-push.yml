@@ -738,9 +738,10 @@ jobs:
           echo "✅ Successfully deployed $LAMBDA_NAME to staging"
 
   approve-production:
-    needs: [determine-environment, detect-changes, build-and-push]
+    needs: [determine-environment, detect-changes, build-and-push, deploy-staging]
     # Approval required for production based on branch strategy
-    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true'
+    # Production approval only starts after staging deployment completes successfully
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -777,7 +778,7 @@ jobs:
             
             **Note:** Lambda function names follow the pattern: `prd-{region}-lambda-{number}`
             
-            **ℹ️ Independent Deployment:** This production deployment can proceed independently of staging approval. You do not need to wait for staging to be approved before approving production.
+            **ℹ️ Sequential Deployment:** Staging deployment has completed successfully. This production deployment can now proceed after approval.
 
   deploy-prod:
     needs: [determine-environment, detect-changes, build-and-push, approve-production]
