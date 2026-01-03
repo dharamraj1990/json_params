@@ -334,6 +334,18 @@ jobs:
           # Construct image tag
           IMAGE_TAG="${LAMBDA_NAME}-${COMMIT_SHA}"
           
+          # For release branch, also get production ECR info
+          ECR_URI_PROD=""
+          if [ "$ENVIRONMENT" == "release" ]; then
+            ECR_REF_PROD=$(echo "$FUNCTION" | jq -r ".ecr_repository_ref.prod")
+            ECR_REPO_NAME_PROD=$(jq -r ".ecr_config.repositories.$ECR_REF_PROD.name" "$MAP_FILE")
+            ECR_URI_PROD="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME_PROD}"
+            echo "ecr-repo-name-prod=$ECR_REPO_NAME_PROD" >> $GITHUB_OUTPUT
+            echo "ecr-uri-prod=$ECR_URI_PROD" >> $GITHUB_OUTPUT
+            echo "Production ECR Repository: $ECR_REPO_NAME_PROD"
+            echo "Production ECR URI: $ECR_URI_PROD"
+          fi
+          
           echo "build-env=$BUILD_ENV" >> $GITHUB_OUTPUT
           echo "account-id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
           echo "env-prefix=$ENV_PREFIX" >> $GITHUB_OUTPUT
@@ -384,7 +396,17 @@ jobs:
             --sbom=false \
             .
           
-          echo "✅ AMD64 image built and pushed successfully"
+          echo "✅ AMD64 image built and pushed to staging ECR"
+          
+          # If production ECR is configured (release branch), also push to production repo
+          if [ -n "${{ steps.lambda-config.outputs.ecr-uri-prod }}" ]; then
+            PROD_IMAGE_URI_AMD64="${{ steps.lambda-config.outputs.ecr-uri-prod }}:${IMAGE_TAG}-amd64"
+            echo "Pushing AMD64 image to production ECR: $PROD_IMAGE_URI_AMD64"
+            docker pull "$FULL_IMAGE_URI_AMD64"
+            docker tag "$FULL_IMAGE_URI_AMD64" "$PROD_IMAGE_URI_AMD64"
+            docker push "$PROD_IMAGE_URI_AMD64"
+            echo "✅ AMD64 image also pushed to production ECR"
+          fi
 
       - name: Build and push ARM64 image
         working-directory: lambda-functions/${{ matrix.folder }}
@@ -404,7 +426,17 @@ jobs:
             --sbom=false \
             .
           
-          echo "✅ ARM64 image built and pushed successfully"
+          echo "✅ ARM64 image built and pushed to staging ECR"
+          
+          # If production ECR is configured (release branch), also push to production repo
+          if [ -n "${{ steps.lambda-config.outputs.ecr-uri-prod }}" ]; then
+            PROD_IMAGE_URI_ARM64="${{ steps.lambda-config.outputs.ecr-uri-prod }}:${IMAGE_TAG}-arm64"
+            echo "Pushing ARM64 image to production ECR: $PROD_IMAGE_URI_ARM64"
+            docker pull "$FULL_IMAGE_URI_ARM64"
+            docker tag "$FULL_IMAGE_URI_ARM64" "$PROD_IMAGE_URI_ARM64"
+            docker push "$PROD_IMAGE_URI_ARM64"
+            echo "✅ ARM64 image also pushed to production ECR"
+          fi
 
       - name: Create multi-architecture manifest list
         run: |
@@ -424,6 +456,19 @@ jobs:
           echo "📦 Multi-arch manifest: $FULL_IMAGE_URI"
           echo "📦 AMD64 single-arch: ${ECR_URI}:${IMAGE_TAG}-amd64"
           echo "📦 ARM64 single-arch: ${ECR_URI}:${IMAGE_TAG}-arm64"
+          
+          # If production ECR is configured (release branch), also create manifest list for production
+          if [ -n "${{ steps.lambda-config.outputs.ecr-uri-prod }}" ]; then
+            ECR_URI_PROD="${{ steps.lambda-config.outputs.ecr-uri-prod }}"
+            FULL_IMAGE_URI_PROD="${ECR_URI_PROD}:${IMAGE_TAG}"
+            echo "Creating multi-architecture manifest list for production ECR..."
+            docker buildx imagetools create \
+              --tag "$FULL_IMAGE_URI_PROD" \
+              "${ECR_URI_PROD}:${IMAGE_TAG}-amd64" \
+              "${ECR_URI_PROD}:${IMAGE_TAG}-arm64"
+            echo "✅ Production multi-arch manifest created: $FULL_IMAGE_URI_PROD"
+          fi
+          
           echo ""
           echo "ℹ️  Lambda functions will use architecture-specific tags (-amd64 or -arm64)"
           echo "   The multi-arch manifest is available for general Docker use"
@@ -922,10 +967,10 @@ jobs:
           echo "✅ Successfully deployed $LAMBDA_NAME to staging"
 
   approve-production:
-    needs: [determine-environment, detect-changes, build-and-push, deploy-staging]
+    needs: [determine-environment, detect-changes, build-and-push]
     # Approval required for production based on branch strategy
-    # Production approval only starts after staging deployment completes successfully
-    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    # Production approval is independent and can proceed separately from staging
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -963,7 +1008,7 @@ jobs:
             
             **Note:** Lambda function names follow the pattern: `prd-{region}-lambda-{number}`
             
-            **ℹ️ Sequential Deployment:** Staging deployment has completed successfully. This production deployment can now proceed after approval.
+            **ℹ️ Independent Deployment:** Production deployment uses a separate ECR repository and can proceed independently of staging deployment.
 
       - name: Install jq for JSON parsing
         if: env.APPROVAL_EMAILS_PRODUCTION != ''
@@ -1044,9 +1089,10 @@ jobs:
         continue-on-error: true
 
   deploy-prod:
-    needs: [determine-environment, detect-changes, build-and-push, approve-staging, approve-production, deploy-staging]
-    # Deploy to production based on branch strategy after staging deployment completes successfully
-    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    needs: [determine-environment, detect-changes, build-and-push, approve-production]
+    # Deploy to production based on branch strategy after approval
+    # Production deployment is independent and uses its own ECR repository
+    if: success() && needs.detect-changes.outputs.folders != '' && needs.determine-environment.outputs.should-deploy-prod == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -1081,9 +1127,9 @@ jobs:
           ACCOUNT_ID=$(echo "$ENV_CONFIG" | jq -r '.account_id')
           ENV_PREFIX=$(echo "$ENV_CONFIG" | jq -r '.env_prefix')
           
-          # Get ECR repository name (prod uses staging repo)
-          ECR_REF_STAGING=$(echo "$FUNCTION" | jq -r ".ecr_repository_ref.staging")
-          ECR_REPO_NAME=$(jq -r ".ecr_config.repositories.$ECR_REF_STAGING.name" "$MAP_FILE")
+          # Get ECR repository name (prod uses production repo)
+          ECR_REF_PROD=$(echo "$FUNCTION" | jq -r ".ecr_repository_ref.prod")
+          ECR_REPO_NAME=$(jq -r ".ecr_config.repositories.$ECR_REF_PROD.name" "$MAP_FILE")
           
           # Construct OIDC ARN
           OIDC_ROLE_NAME=$(jq -r '.oidc_config.role_name' "$MAP_FILE")
@@ -1093,14 +1139,9 @@ jobs:
           LAMBDA_NAME="${ENV_PREFIX}-${AWS_REGION}-lambda-${FUNCTION_NUMBER}"
           LAMBDA_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:${LAMBDA_NAME}"
           
-          # For production, image is in staging repo with staging tag
-          STAGING_ENV_CONFIG=$(jq -r ".aws_base_config.environments.staging" "$MAP_FILE")
-          STAGING_ENV_PREFIX=$(echo "$STAGING_ENV_CONFIG" | jq -r '.env_prefix')
-          STAGING_LAMBDA_NAME="${STAGING_ENV_PREFIX}-${AWS_REGION}-lambda-${FUNCTION_NUMBER}"
-          
-          # Construct ECR URI and image tag (using staging tag since image is in staging repo)
+          # Construct ECR URI and image tag (using production repo and production tag)
           ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
-          IMAGE_TAG="${STAGING_LAMBDA_NAME}-${COMMIT_SHA}"
+          IMAGE_TAG="${LAMBDA_NAME}-${COMMIT_SHA}"
           IMAGE_URI="${ECR_URI}:${IMAGE_TAG}"
           
           echo "oidc-arn=$OIDC_ARN" >> $GITHUB_OUTPUT
@@ -1113,7 +1154,7 @@ jobs:
           echo "✅ Deployment Configuration:"
           echo "  Lambda Name: $LAMBDA_NAME"
           echo "  Lambda ARN: $LAMBDA_ARN"
-          echo "  Image URI: $IMAGE_URI (from staging repo)"
+          echo "  Image URI: $IMAGE_URI (from production repo)"
           echo "  Account ID: $ACCOUNT_ID"
 
       - name: Configure AWS credentials (OIDC)

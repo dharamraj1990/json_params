@@ -74,3 +74,4 @@ def lambda_handler(event, context):
 # Trigger release branch workflow - multi-arch build
 # Sequential deployment: staging first, then production
 # Independent production deployment clarification
+# Production uses separate ECR repository
