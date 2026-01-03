@@ -70,3 +70,4 @@ def lambda_handler(event, context):
 # Multi-architecture build support (ARM64/AMD64)
 # Trigger workflow to test multi-arch build fix
 # Testing single build with multi-arch support
+# Testing single-arch images for Lambda compatibility
