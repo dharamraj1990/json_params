@@ -339,24 +339,49 @@ jobs:
           BASE_IMAGE="${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64"
           echo "Base Image: $BASE_IMAGE"
           
-          docker buildx build \
-            --platform linux/amd64 \
-            --tag "$BASE_IMAGE" \
-            --push \
-            --provenance=false \
-            --sbom=false \
-            .
+          # Extract repository name from ECR URI
+          ECR_REPO_NAME=$(echo "${{ steps.ecr-config.outputs.ecr-uri }}" | sed 's|.*/||')
+          IMAGE_TAG_ONLY="${{ steps.image-tag.outputs.tag }}-amd64"
           
-          echo "✅ AMD64 image built and pushed to $BASE_IMAGE"
+          # Check if image already exists in ECR
+          echo "Checking if image tag already exists..."
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPO_NAME" \
+            --image-ids imageTag="$IMAGE_TAG_ONLY" \
+            --region ${{ env.AWS_REGION }} \
+            >/dev/null 2>&1; then
+            echo "⚠️  Image tag $IMAGE_TAG_ONLY already exists in $ECR_REPO_NAME. Skipping build and push."
+            echo "ℹ️  Using existing image: $BASE_IMAGE"
+          else
+            echo "Image tag does not exist. Building and pushing..."
+            docker buildx build \
+              --platform linux/amd64 \
+              --tag "$BASE_IMAGE" \
+              --push \
+              --provenance=false \
+              --sbom=false \
+              .
+            echo "✅ AMD64 image built and pushed to $BASE_IMAGE"
+          fi
           
           # If production ECR is configured (release branch), also push to production repo
           if [ -n "${{ steps.ecr-config.outputs.ecr-uri-prod }}" ]; then
             PROD_IMAGE="${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}-amd64"
-            echo "Pushing AMD64 image to production ECR: $PROD_IMAGE"
-            docker pull "$BASE_IMAGE"
-            docker tag "$BASE_IMAGE" "$PROD_IMAGE"
-            docker push "$PROD_IMAGE"
-            echo "✅ AMD64 image also pushed to production ECR"
+            PROD_ECR_REPO_NAME=$(echo "${{ steps.ecr-config.outputs.ecr-uri-prod }}" | sed 's|.*/||')
+            echo "Checking if production image tag already exists..."
+            if aws ecr describe-images \
+              --repository-name "$PROD_ECR_REPO_NAME" \
+              --image-ids imageTag="$IMAGE_TAG_ONLY" \
+              --region ${{ env.AWS_REGION }} \
+              >/dev/null 2>&1; then
+              echo "⚠️  Production image tag $IMAGE_TAG_ONLY already exists in $PROD_ECR_REPO_NAME. Skipping push."
+            else
+              echo "Pushing AMD64 image to production ECR: $PROD_IMAGE"
+              docker pull "$BASE_IMAGE"
+              docker tag "$BASE_IMAGE" "$PROD_IMAGE"
+              docker push "$PROD_IMAGE"
+              echo "✅ AMD64 image also pushed to production ECR"
+            fi
           fi
 
       - name: Build and push ARM64 image
@@ -366,24 +391,49 @@ jobs:
           BASE_IMAGE="${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64"
           echo "Base Image: $BASE_IMAGE"
           
-          docker buildx build \
-            --platform linux/arm64 \
-            --tag "$BASE_IMAGE" \
-            --push \
-            --provenance=false \
-            --sbom=false \
-            .
+          # Extract repository name from ECR URI
+          ECR_REPO_NAME=$(echo "${{ steps.ecr-config.outputs.ecr-uri }}" | sed 's|.*/||')
+          IMAGE_TAG_ONLY="${{ steps.image-tag.outputs.tag }}-arm64"
           
-          echo "✅ ARM64 image built and pushed to $BASE_IMAGE"
+          # Check if image already exists in ECR
+          echo "Checking if image tag already exists..."
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPO_NAME" \
+            --image-ids imageTag="$IMAGE_TAG_ONLY" \
+            --region ${{ env.AWS_REGION }} \
+            >/dev/null 2>&1; then
+            echo "⚠️  Image tag $IMAGE_TAG_ONLY already exists in $ECR_REPO_NAME. Skipping build and push."
+            echo "ℹ️  Using existing image: $BASE_IMAGE"
+          else
+            echo "Image tag does not exist. Building and pushing..."
+            docker buildx build \
+              --platform linux/arm64 \
+              --tag "$BASE_IMAGE" \
+              --push \
+              --provenance=false \
+              --sbom=false \
+              .
+            echo "✅ ARM64 image built and pushed to $BASE_IMAGE"
+          fi
           
           # If production ECR is configured (release branch), also push to production repo
           if [ -n "${{ steps.ecr-config.outputs.ecr-uri-prod }}" ]; then
             PROD_IMAGE="${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}-arm64"
-            echo "Pushing ARM64 image to production ECR: $PROD_IMAGE"
-            docker pull "$BASE_IMAGE"
-            docker tag "$BASE_IMAGE" "$PROD_IMAGE"
-            docker push "$PROD_IMAGE"
-            echo "✅ ARM64 image also pushed to production ECR"
+            PROD_ECR_REPO_NAME=$(echo "${{ steps.ecr-config.outputs.ecr-uri-prod }}" | sed 's|.*/||')
+            echo "Checking if production image tag already exists..."
+            if aws ecr describe-images \
+              --repository-name "$PROD_ECR_REPO_NAME" \
+              --image-ids imageTag="$IMAGE_TAG_ONLY" \
+              --region ${{ env.AWS_REGION }} \
+              >/dev/null 2>&1; then
+              echo "⚠️  Production image tag $IMAGE_TAG_ONLY already exists in $PROD_ECR_REPO_NAME. Skipping push."
+            else
+              echo "Pushing ARM64 image to production ECR: $PROD_IMAGE"
+              docker pull "$BASE_IMAGE"
+              docker tag "$BASE_IMAGE" "$PROD_IMAGE"
+              docker push "$PROD_IMAGE"
+              echo "✅ ARM64 image also pushed to production ECR"
+            fi
           fi
 
       - name: Create multi-architecture manifest list
@@ -391,12 +441,24 @@ jobs:
           echo "Creating multi-architecture manifest list from architecture-specific images..."
           # Create a manifest list that combines both architectures
           # This allows Docker to automatically select the correct architecture when pulling
-          docker buildx imagetools create \
+          # Handle case where manifest already exists (immutable tags)
+          set +e
+          OUTPUT=$(docker buildx imagetools create \
             --tag ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }} \
             ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64 \
-            ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64
+            ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64 2>&1)
+          EXIT_CODE=$?
+          set -e
           
-          echo "✅ Multi-architecture manifest list created successfully"
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✅ Multi-architecture manifest list created successfully"
+          elif echo "$OUTPUT" | grep -q "already exists\|immutable\|cannot be overwritten"; then
+            echo "⚠️  Manifest list already exists. Using existing manifest."
+          else
+            echo "⚠️  Warning: Failed to create manifest list: $OUTPUT"
+            echo "Continuing with deployment..."
+          fi
+          
           echo "📦 Multi-arch manifest: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}"
           echo "📦 AMD64 single-arch: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-amd64"
           echo "📦 ARM64 single-arch: ${{ steps.ecr-config.outputs.ecr-uri }}:${{ steps.image-tag.outputs.tag }}-arm64"
@@ -404,11 +466,22 @@ jobs:
           # If production ECR is configured (release branch), also create manifest list for production
           if [ -n "${{ steps.ecr-config.outputs.ecr-uri-prod }}" ]; then
             echo "Creating multi-architecture manifest list for production ECR..."
-            docker buildx imagetools create \
+            set +e
+            PROD_OUTPUT=$(docker buildx imagetools create \
               --tag ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }} \
               ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}-amd64 \
-              ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}-arm64
-            echo "✅ Production multi-arch manifest created: ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}"
+              ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}-arm64 2>&1)
+            PROD_EXIT_CODE=$?
+            set -e
+            
+            if [ $PROD_EXIT_CODE -eq 0 ]; then
+              echo "✅ Production multi-arch manifest created: ${{ steps.ecr-config.outputs.ecr-uri-prod }}:${{ steps.image-tag.outputs.tag }}"
+            elif echo "$PROD_OUTPUT" | grep -q "already exists\|immutable\|cannot be overwritten"; then
+              echo "⚠️  Production manifest list already exists. Using existing manifest."
+            else
+              echo "⚠️  Warning: Failed to create production manifest list: $PROD_OUTPUT"
+              echo "Continuing with deployment..."
+            fi
           fi
           
           echo ""
