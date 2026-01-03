@@ -14,7 +14,7 @@ def lambda_handler(event, context):
     """
     print(f"Received event: {json.dumps(event)}")
     
-    # Your Lambda function logic here
+    # Your Lambda function logic here new
     response = {
         'statusCode': 200,
         'headers': {
